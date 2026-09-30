@@ -57,6 +57,8 @@ inline constexpr uint8_t PWM_RESOLUTION_BITS = 10;
 inline constexpr uint16_t PWM_MAX = (1U << PWM_RESOLUTION_BITS) - 1U;
 inline constexpr uint32_t ENVELOPE_UPDATE_US = 1000; // 1 ms envelope resolution
 inline constexpr int64_t BACKGROUND_WORK_GUARD_US = 50'000;
+inline constexpr uint8_t BEACON_TASK_PRIORITY = 4;
+inline constexpr uint32_t BEACON_TASK_STACK_SIZE = 4096;
 
 // -----------------------------------------------------------------------------
 // Doobsky lighthouse light characteristic

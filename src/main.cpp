@@ -2,10 +2,7 @@
 #include <Preferences.h>
 #include <Zigbee.h>
 #include "zcl/esp_zigbee_zcl_power_config.h"
-#include <esp_timer.h>
-#include "esp32-hal-rgb-led.h"
-#include "flash_envelope_lut.h"
-
+#include "beacon_engine.h"
 #include "config.h"
 
 #if !defined(ZIGBEE_MODE_ED)
@@ -57,23 +54,17 @@ public:
 
 ZigbeeDimmableLight zbLight(LIGHT_ENDPOINT);
 BatteryTelemetryEndpoint zbBatterySensor(BATTERY_SENSOR_ENDPOINT);
+BeaconEngine beacon;
 Preferences prefs;
 
 portMUX_TYPE stateMux = portMUX_INITIALIZER_UNLOCKED;
 volatile bool requestedOn = false;
 volatile uint8_t requestedLevel = DEFAULT_LEVEL;
 volatile bool requestPending = false;
-volatile bool restartCyclePending = false;
 volatile bool identifyActive = false;
 
 bool activeOn = false;
 uint8_t activeLevel = DEFAULT_LEVEL;
-uint16_t activePeakDuty = PWM_MAX;
-int64_t cycleEpochUs = 0;
-int64_t nextBeaconUpdateUs = 0;
-uint16_t lastPwmDuty = 0;
-uint8_t lastRgbLevel = 0xFF;
-int64_t lastRgbUpdateUs = 0;
 uint8_t lastStatusLedLevel = 0xFF;
 uint32_t lastStatusUpdateMs = 0;
 uint32_t lastButtonPollMs = 0;
@@ -118,36 +109,12 @@ inline void writeStatusLed(bool on) {
   writeStatusLedLevel(on ? 255U : 0U);
 }
 
-inline void writeRgbLevel(uint8_t level, int64_t nowUs) {
-  if (level == lastRgbLevel) return;
-  if (level != 0 && lastRgbUpdateUs != 0 && (nowUs - lastRgbUpdateUs) < RGB_UPDATE_US) return;
-  rgbLedWrite(RGB_LED_PIN, level, level, level);
-  lastRgbLevel = level;
-  lastRgbUpdateUs = nowUs;
-}
-
-inline void writeBeaconPwm(uint16_t duty, int64_t nowUs = 0) {
-  if (duty == lastPwmDuty) return;
-  ledcWrite(MOSFET_PWM_PIN, duty);
-  lastPwmDuty = duty;
-  if (nowUs == 0) nowUs = esp_timer_get_time();
-  const uint8_t rgb = static_cast<uint8_t>((static_cast<uint32_t>(duty) * 255U + PWM_MAX / 2U) / PWM_MAX);
-  writeRgbLevel(rgb, nowUs);
-}
-
 inline bool backgroundWorkAllowed() {
-  if (lastPwmDuty != 0) return false;
-  if (!activeOn || nextBeaconUpdateUs == 0) return true;
-  return (nextBeaconUpdateUs - esp_timer_get_time()) > BACKGROUND_WORK_GUARD_US;
+  return beacon.isDarkWindowSafe();
 }
 
 inline uint8_t normalizeZigbeeLevel(uint8_t level) {
   return (level == 0xFF || level > ZIGBEE_MAX_LEVEL) ? DEFAULT_LEVEL : level;
-}
-
-inline uint16_t peakDutyForLevel(uint8_t level) {
-  return static_cast<uint16_t>((static_cast<uint32_t>(level) * PWM_MAX + ZIGBEE_MAX_LEVEL / 2U) /
-                               ZIGBEE_MAX_LEVEL);
 }
 
 uint8_t batteryPercentFromMv(uint16_t mv) {
@@ -233,7 +200,6 @@ bool serviceRuntimeBatterySample(uint32_t nowMs) {
 
 void enqueueRequestedState(bool state, uint8_t level) {
   portENTER_CRITICAL(&stateMux);
-  if (state && !requestedOn) restartCyclePending = true;
   requestedOn = state;
   requestedLevel = level;
   requestPending = true;
@@ -252,97 +218,23 @@ void onIdentify(uint16_t timeSeconds) {
 void applyRequestedState(uint32_t nowMs) {
   if (!requestPending) return;
 
-  bool restartCycle;
   bool newOn;
   uint8_t newLevel;
   portENTER_CRITICAL(&stateMux);
   newOn = requestedOn;
   newLevel = requestedLevel;
-  restartCycle = restartCyclePending;
-  restartCyclePending = false;
   requestPending = false;
   portEXIT_CRITICAL(&stateMux);
 
   const bool stateChanged = (newOn != activeOn) || (newLevel != activeLevel);
-  const bool turningOn = newOn && !activeOn;
   activeOn = newOn;
   activeLevel = newLevel;
-  activePeakDuty = peakDutyForLevel(activeLevel);
-
-  if (turningOn || (activeOn && restartCycle)) {
-    const int64_t nowUs = esp_timer_get_time();
-    cycleEpochUs = nowUs;
-    nextBeaconUpdateUs = nowUs;
-  } else if (!activeOn || activePeakDuty == 0) {
-    cycleEpochUs = 0;
-    nextBeaconUpdateUs = 0;
-    writeBeaconPwm(0);
-  } else if (stateChanged) {
-    nextBeaconUpdateUs = 0;
-  }
+  beacon.request(activeOn, activeLevel);
 
   if (stateChanged) {
     prefsDirty = true;
     prefsDirtySinceMs = nowMs;
   }
-}
-
-void updateBeaconOutput() {
-  if (!activeOn || activePeakDuty == 0) return;
-
-  const int64_t nowUs = esp_timer_get_time();
-  if (nextBeaconUpdateUs != 0 && nowUs < nextBeaconUpdateUs) return;
-  if (cycleEpochUs == 0) cycleEpochUs = nowUs;
-
-  int64_t elapsedUs = nowUs - cycleEpochUs;
-  if (elapsedUs >= CYCLE_US) {
-    const int64_t cycles = elapsedUs / CYCLE_US;
-    cycleEpochUs += cycles * CYCLE_US;
-    elapsedUs -= cycles * CYCLE_US;
-  }
-
-  const uint32_t phaseUs = static_cast<uint32_t>(elapsedUs);
-  uint32_t localUs;
-  int64_t flashStartUs;
-  int64_t flashEndUs;
-
-  if (phaseUs < FLASH_US) {
-    localUs = phaseUs;
-    flashStartUs = cycleEpochUs;
-    flashEndUs = cycleEpochUs + FLASH_US;
-  } else if (phaseUs < FLASH2_START_US) {
-    writeBeaconPwm(0, nowUs);
-    nextBeaconUpdateUs = cycleEpochUs + FLASH2_START_US;
-    return;
-  } else if (phaseUs < FLASH2_START_US + FLASH_US) {
-    localUs = phaseUs - FLASH2_START_US;
-    flashStartUs = cycleEpochUs + FLASH2_START_US;
-    flashEndUs = flashStartUs + FLASH_US;
-  } else if (phaseUs < FLASH3_START_US) {
-    writeBeaconPwm(0, nowUs);
-    nextBeaconUpdateUs = cycleEpochUs + FLASH3_START_US;
-    return;
-  } else if (phaseUs < FLASH3_START_US + FLASH_US) {
-    localUs = phaseUs - FLASH3_START_US;
-    flashStartUs = cycleEpochUs + FLASH3_START_US;
-    flashEndUs = flashStartUs + FLASH_US;
-  } else {
-    writeBeaconPwm(0, nowUs);
-    nextBeaconUpdateUs = cycleEpochUs + CYCLE_US;
-    return;
-  }
-
-  constexpr uint32_t requiredSamples = (FLASH_US + ENVELOPE_UPDATE_US - 1U) / ENVELOPE_UPDATE_US;
-  static_assert(FLASH_ENVELOPE_LUT_SIZE >= requiredSamples, "Flash envelope LUT is too short");
-  const uint32_t sampleIndex = localUs / ENVELOPE_UPDATE_US;
-  const uint16_t fullDuty = FLASH_ENVELOPE_LUT[sampleIndex];
-  const uint16_t duty = activePeakDuty == PWM_MAX
-      ? fullDuty
-      : static_cast<uint16_t>((static_cast<uint32_t>(fullDuty) * activePeakDuty + PWM_MAX / 2U) / PWM_MAX);
-  writeBeaconPwm(duty, nowUs);
-
-  nextBeaconUpdateUs = flashStartUs + static_cast<int64_t>(sampleIndex + 1U) * ENVELOPE_UPDATE_US;
-  if (nextBeaconUpdateUs > flashEndUs) nextBeaconUpdateUs = flashEndUs;
 }
 
 void loadPersistentState() {
@@ -445,7 +337,7 @@ void localToggle() {
 }
 
 void performFactoryReset() {
-  writeBeaconPwm(0);
+  beacon.forceOff();
   for (int i = 0; i < 6; ++i) {
     writeStatusLed((i & 1) == 0);
     delay(100);
@@ -519,20 +411,11 @@ void setup() {
   }
   writeStatusLed(false);
 
-  rgbLedWrite(RGB_LED_PIN, 0, 0, 0);
-  lastRgbLevel = 0;
-  lastRgbUpdateUs = esp_timer_get_time();
-
-  if (!ledcAttach(MOSFET_PWM_PIN, PWM_FREQUENCY_HZ, PWM_RESOLUTION_BITS)) {
-    Serial.println("[FATAL] LEDC/PWM attach failed");
-    while (true) {
-      writeStatusLed(true);
-      delay(100);
-      writeStatusLed(false);
-      delay(100);
-    }
+  if (!beacon.begin()) {
+    Serial.println("[FATAL] Beacon engine initialization failed");
+    delay(100);
+    ESP.restart();
   }
-  writeBeaconPwm(0);
 
   pinMode(BATTERY_ADC_PIN, INPUT);
   analogReadResolution(12);
@@ -589,10 +472,9 @@ void setup() {
 void loop() {
   const uint32_t nowMs = millis();
   applyRequestedState(nowMs);
-  updateBeaconOutput();
   updateButton(nowMs);
   updateIndicators(nowMs);
   updateBatteryStatus(nowMs);
   savePersistentStateIfNeeded(nowMs);
-  delay(1);
+  delay(5);
 }
