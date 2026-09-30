@@ -3,6 +3,7 @@
 #include <Zigbee.h>
 #include "zcl/esp_zigbee_zcl_power_config.h"
 #include "beacon_engine.h"
+#include "zigbee_light.h"
 #include "config.h"
 
 #if !defined(ZIGBEE_MODE_ED)
@@ -52,9 +53,9 @@ public:
   }
 };
 
-ZigbeeDimmableLight zbLight(LIGHT_ENDPOINT);
 BatteryTelemetryEndpoint zbBatterySensor(BATTERY_SENSOR_ENDPOINT);
 BeaconEngine beacon;
+Doobsky::ZigbeeLight zigbeeLight;
 Preferences prefs;
 
 portMUX_TYPE stateMux = portMUX_INITIALIZER_UNLOCKED;
@@ -111,10 +112,6 @@ inline void writeStatusLed(bool on) {
 
 inline bool backgroundWorkAllowed() {
   return beacon.isDarkWindowSafe();
-}
-
-inline uint8_t normalizeZigbeeLevel(uint8_t level) {
-  return (level == 0xFF || level > ZIGBEE_MAX_LEVEL) ? DEFAULT_LEVEL : level;
 }
 
 uint8_t batteryPercentFromMv(uint16_t mv) {
@@ -208,11 +205,11 @@ void enqueueRequestedState(bool state, uint8_t level) {
 
 void onZigbeeLightChange(bool state, uint8_t level) {
   // Zigbee callback: keep it short; no flash writes or PWM math here.
-  enqueueRequestedState(state, normalizeZigbeeLevel(level));
+  enqueueRequestedState(state, level);
 }
 
-void onIdentify(uint16_t timeSeconds) {
-  identifyActive = (timeSeconds != 0);
+void onIdentify(bool active) {
+  identifyActive = active;
 }
 
 void applyRequestedState(uint32_t nowMs) {
@@ -325,15 +322,10 @@ void updateBatteryStatus(uint32_t nowMs) {
 }
 
 void localToggle() {
-  const bool next = !activeOn;
-  uint8_t level = activeLevel;
-  if (level == 0) {
-    level = DEFAULT_LEVEL;
-  }
-
-  if (!zbLight.setLight(next, level)) {
-    enqueueRequestedState(next, level);
-  }
+  const bool next = !zigbeeLight.on();
+  uint8_t level = zigbeeLight.level();
+  if (level == 0) level = DEFAULT_LEVEL;
+  zigbeeLight.setLocalState(next, level);
 }
 
 void performFactoryReset() {
@@ -423,16 +415,8 @@ void setup() {
 
   loadPersistentState();
 
-  zbLight.onLightChange(onZigbeeLightChange);
-  zbLight.onIdentify(onIdentify);
-
-  // EP2: standard Zigbee HA Dimmable Light.
-  if (!zbLight.setManufacturerAndModel(MANUFACTURER, MODEL)) {
-    Serial.println("[FATAL] Failed to configure EP2 light");
-    ESP.restart();
-  }
-  zbLight.setVersion(ZIGBEE_APP_VERSION);
-  zbLight.setHardwareVersion(ZIGBEE_HW_VERSION);
+  zigbeeLight.setStateChangedCallback(onZigbeeLightChange);
+  zigbeeLight.setIdentifyChangedCallback(onIdentify);
 
   // EP1: HA Meter Interface with standard Power Configuration and Electrical Measurement/DCVoltage.
   if (!zbBatterySensor.addDCMeasurement(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE) ||
@@ -446,20 +430,19 @@ void setup() {
   zbBatterySensor.setVersion(ZIGBEE_APP_VERSION);
   zbBatterySensor.setHardwareVersion(ZIGBEE_HW_VERSION);
 
-  if (!Zigbee.addEndpoint(&zbBatterySensor) || !Zigbee.addEndpoint(&zbLight)) {
-    Serial.println("[FATAL] Failed to register EP1/EP2");
+  if (!Zigbee.addEndpoint(&zbBatterySensor)) {
+    Serial.println("[FATAL] Failed to register EP1 battery endpoint");
     ESP.restart();
   }
 
   Serial.println("[ZB] Starting Zigbee stack...");
-  if (!Zigbee.begin(ZIGBEE_END_DEVICE)) {
-    Serial.println("[FATAL] Zigbee.begin() failed; restarting");
+  if (!zigbeeLight.begin(activeOn, activeLevel)) {
+    Serial.println("[FATAL] Zigbee light/stack startup failed; restarting");
     delay(500);
     ESP.restart();
   }
 
-  // Make endpoint attributes match the local state after Zigbee initialization.
-  zbLight.setLight(activeOn, activeLevel);
+  // Make battery endpoint attributes match the sampled state after stack start.
   zbBatterySensor.setBatteryTelemetryRaw(batteryPercentageZclRaw(), batteryVoltageZclRaw());
   zbBatterySensor.setDCMeasurement(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE, batteryDcVoltageZclRaw());
   if (!zbBatterySensor.setDCReporting(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE, 0, 300, 20)) {
