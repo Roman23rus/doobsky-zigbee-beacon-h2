@@ -1,0 +1,12 @@
+.pio/
+.vscode/
+.idea/
+.pytest_cache/
+__pycache__/
+docs/superpowers/
+*.bin
+*.elf
+*.map
+*.pyc
+.DS_Store
+Thumbs.db
