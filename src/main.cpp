@@ -66,7 +66,8 @@ void enqueueRequestedState(bool state, uint8_t level) {
 }
 
 void onZigbeeLightChange(bool state, uint8_t level) {
-  // Zigbee callback: keep it short; no flash writes or PWM math here.
+  // Wake the optical engine immediately; housekeeping only persists the shadow state.
+  beacon.request(state, level);
   enqueueRequestedState(state, level);
 }
 
@@ -88,7 +89,6 @@ void applyRequestedState(uint32_t nowMs) {
   const bool stateChanged = (newOn != activeOn) || (newLevel != activeLevel);
   activeOn = newOn;
   activeLevel = newLevel;
-  beacon.request(activeOn, activeLevel);
 
   if (stateChanged) {
     prefsDirty = true;
@@ -136,7 +136,7 @@ void updateIndicators(uint32_t nowMs) {
   if (identifyActive) {
     writeStatusLed(((nowMs / 250U) & 1U) != 0);
   } else if (Zigbee.connected()) {
-    writeStatusLed(true);
+    writeStatusLed(false);
   } else {
     writeStatusLedLevel(smoothBreathingLevel(nowMs));
   }
@@ -231,6 +231,7 @@ void setup() {
   }
 
   loadPersistentState();
+  beacon.request(activeOn, activeLevel);
 
   zigbeeLight.setStateChangedCallback(onZigbeeLightChange);
   zigbeeLight.setIdentifyChangedCallback(onIdentify);
@@ -262,5 +263,5 @@ void loop() {
   updateIndicators(nowMs);
   battery.service(nowMs, backgroundWorkAllowed());
   savePersistentStateIfNeeded(nowMs);
-  delay(5);
+  delay(HOUSEKEEPING_INTERVAL_MS);
 }
