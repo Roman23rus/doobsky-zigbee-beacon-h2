@@ -40,7 +40,6 @@ bool BeaconEngine::begin() {
 }
 
 void BeaconEngine::request(bool on, uint8_t level) {
-  const int64_t nowUs = esp_timer_get_time();
   TaskHandle_t task = nullptr;
   portENTER_CRITICAL(&mux_);
   const bool turningOn = on && !requestedOn_;
@@ -48,7 +47,7 @@ void BeaconEngine::request(bool on, uint8_t level) {
   requestedLevel_ = level;
   requestDirty_ = true;
   if (turningOn) {
-    cycleEpochUs_ = nowUs;
+    restartCycleRequested_ = true;
   }
   task = taskHandle_;
   portEXIT_CRITICAL(&mux_);
@@ -112,33 +111,37 @@ void BeaconEngine::taskLoop() {
 void BeaconEngine::applyRequestedState() {
   bool dirty;
   bool newOn;
+  bool restartCycle;
   uint8_t newLevel;
   portENTER_CRITICAL(&mux_);
   dirty = requestDirty_;
   newOn = requestedOn_;
   newLevel = requestedLevel_;
+  restartCycle = restartCycleRequested_;
   requestDirty_ = false;
+  restartCycleRequested_ = false;
   portEXIT_CRITICAL(&mux_);
   if (!dirty) return;
 
-  activeOn_ = newOn;
-  activeLevel_ = newLevel;
-  activePeakDuty_ = peakDutyForLevel(newLevel);
-
-  if (!activeOn_ || activePeakDuty_ == 0) {
-    portENTER_CRITICAL(&mux_);
-    cycleEpochUs_ = 0;
-    nextDeadlineUs_ = 0;
-    portEXIT_CRITICAL(&mux_);
-    writePwm(0, esp_timer_get_time());
-    return;
-  }
+  const uint16_t newPeakDuty = peakDutyForLevel(newLevel);
+  const bool forceDark = !newOn || newPeakDuty == 0;
+  const int64_t nowUs = esp_timer_get_time();
 
   portENTER_CRITICAL(&mux_);
-  if (cycleEpochUs_ == 0) {
-    cycleEpochUs_ = esp_timer_get_time();
+  activeOn_ = newOn;
+  activeLevel_ = newLevel;
+  activePeakDuty_ = newPeakDuty;
+  if (forceDark) {
+    cycleEpochUs_ = 0;
+    nextDeadlineUs_ = 0;
+  } else if (restartCycle || cycleEpochUs_ == 0) {
+    cycleEpochUs_ = nowUs;
   }
   portEXIT_CRITICAL(&mux_);
+
+  if (forceDark) {
+    writePwm(0, nowUs);
+  }
 }
 
 int64_t BeaconEngine::serviceAt(int64_t nowUs) {

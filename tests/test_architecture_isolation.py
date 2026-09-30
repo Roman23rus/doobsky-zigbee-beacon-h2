@@ -67,9 +67,21 @@ class ArchitectureIsolationTests(unittest.TestCase):
     def test_on_transition_starts_immediately_duplicate_on_does_not_restart(self):
         source = read(BEACON_CPP_PATH)
         request = function_text(source, "BeaconEngine::request")
+        apply = function_text(source, "BeaconEngine::applyRequestedState")
         self.assertIn("turningOn", request)
-        self.assertIn("cycleEpochUs", request)
-        self.assertNotIn("restartCycle", request)
+        self.assertIn("restartCycleRequested_", request)
+        self.assertNotIn("cycleEpochUs_", request)
+        self.assertIn("restartCycle", apply)
+        self.assertIn("cycleEpochUs_", apply)
+
+    def test_shared_active_state_is_written_under_mux(self):
+        source = read(BEACON_CPP_PATH)
+        apply = function_text(source, "BeaconEngine::applyRequestedState")
+        assignment = apply.find("activeOn_ = newOn")
+        self.assertGreaterEqual(assignment, 0)
+        enter = apply.rfind("portENTER_CRITICAL", 0, assignment)
+        exit_ = apply.rfind("portEXIT_CRITICAL", 0, assignment)
+        self.assertGreater(enter, exit_)
 
 
 if __name__ == "__main__":

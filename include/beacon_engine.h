@@ -36,6 +36,7 @@ private:
   bool requestedOn_ = false;
   uint8_t requestedLevel_ = 0;
   bool requestDirty_ = false;
+  bool restartCycleRequested_ = false;
 
   bool activeOn_ = false;
   uint8_t activeLevel_ = 0;
