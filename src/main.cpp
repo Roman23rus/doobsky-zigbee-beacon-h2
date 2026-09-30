@@ -1,8 +1,8 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <Zigbee.h>
-#include "zcl/esp_zigbee_zcl_power_config.h"
 #include "beacon_engine.h"
+#include "battery_telemetry.h"
 #include "zigbee_light.h"
 #include "config.h"
 
@@ -14,46 +14,7 @@ using namespace BeaconConfig;
 
 namespace {
 
-static constexpr uint8_t BATTERY_ZCL_UNKNOWN = 0xFF;
-static constexpr int16_t DC_VOLTAGE_UNKNOWN = INT16_MIN;
-
-class BatteryTelemetryEndpoint : public ZigbeeElectricalMeasurement {
-public:
-  explicit BatteryTelemetryEndpoint(uint8_t endpoint) : ZigbeeElectricalMeasurement(endpoint) {
-    _device_id = ESP_ZB_HA_METER_INTERFACE_DEVICE_ID;
-    _ep_config.endpoint = endpoint;
-    _ep_config.app_profile_id = ESP_ZB_AF_HA_PROFILE_ID;
-    _ep_config.app_device_id = ESP_ZB_HA_METER_INTERFACE_DEVICE_ID;
-    _ep_config.app_device_version = 0;
-  }
-
-  bool addBatteryPowerConfiguration(uint8_t percentageRaw, uint8_t voltageRaw) {
-    auto *basic = esp_zb_cluster_list_get_cluster(_cluster_list, ESP_ZB_ZCL_CLUSTER_ID_BASIC,
-                                                   ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
-    if (!basic) return false;
-    uint8_t source = static_cast<uint8_t>(ZB_POWER_SOURCE_BATTERY);
-    if (esp_zb_cluster_update_attr(basic, ESP_ZB_ZCL_ATTR_BASIC_POWER_SOURCE_ID, &source) != ESP_OK) return false;
-    auto *power = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_POWER_CONFIG);
-    if (!power) return false;
-    if (esp_zb_power_config_cluster_add_attr(power, ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID,
-                                              &percentageRaw) != ESP_OK) return false;
-    if (esp_zb_power_config_cluster_add_attr(power, ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID,
-                                              &voltageRaw) != ESP_OK) return false;
-    if (esp_zb_cluster_list_add_power_config_cluster(_cluster_list, power, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE) != ESP_OK) return false;
-    _power_source = ZB_POWER_SOURCE_BATTERY;
-    return true;
-  }
-
-  bool setBatteryTelemetryRaw(uint8_t percentageRaw, uint8_t voltageRaw) {
-    const auto p = setClusterAttribute(ESP_ZB_ZCL_CLUSTER_ID_POWER_CONFIG, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-        ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID, &percentageRaw, false);
-    const auto v = setClusterAttribute(ESP_ZB_ZCL_CLUSTER_ID_POWER_CONFIG, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-        ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID, &voltageRaw, false);
-    return p == ESP_ZB_ZCL_STATUS_SUCCESS && v == ESP_ZB_ZCL_STATUS_SUCCESS;
-  }
-};
-
-BatteryTelemetryEndpoint zbBatterySensor(BATTERY_SENSOR_ENDPOINT);
+Doobsky::BatteryTelemetry battery;
 BeaconEngine beacon;
 Doobsky::ZigbeeLight zigbeeLight;
 Preferences prefs;
@@ -69,24 +30,6 @@ uint8_t activeLevel = DEFAULT_LEVEL;
 uint8_t lastStatusLedLevel = 0xFF;
 uint32_t lastStatusUpdateMs = 0;
 uint32_t lastButtonPollMs = 0;
-
-uint16_t batteryMv = 0;
-uint8_t batteryPercent = 0;
-bool batteryValid = false;
-uint8_t lastReportedBatteryPercent = 0;
-uint16_t lastReportedBatteryMv = 0;
-uint32_t lastBatterySampleMs = 0;
-uint32_t lastBatteryReportMs = 0;
-uint32_t lastBatteryReportAttemptMs = 0;
-bool batteryReportInitialized = false;
-bool lastReportedBatteryValid = false;
-bool batteryTelemetryDirty = true;
-
-struct BatterySampler {
-  uint32_t sumMv = 0;
-  uint8_t samples = 0;
-  bool active = false;
-} batterySampler;
 
 bool prefsDirty = false;
 uint32_t prefsDirtySinceMs = 0;
@@ -113,87 +56,6 @@ inline void writeStatusLed(bool on) {
 inline bool backgroundWorkAllowed() {
   return beacon.isDarkWindowSafe();
 }
-
-uint8_t batteryPercentFromMv(uint16_t mv) {
-  struct Point { uint16_t mv; uint8_t pct; };
-  static constexpr Point curve[] = {
-    {3300, 0}, {3500, 7}, {3600, 15}, {3700, 30}, {3800, 50},
-    {3900, 65}, {4000, 80}, {4100, 90}, {4200, 100},
-  };
-  if (mv <= curve[0].mv) return 0;
-  const size_t last = (sizeof(curve) / sizeof(curve[0])) - 1;
-  if (mv >= curve[last].mv) return 100;
-  for (size_t i = 1; i <= last; ++i) {
-    if (mv <= curve[i].mv) {
-      const Point &lo = curve[i - 1], &hi = curve[i];
-      const uint32_t span = hi.mv - lo.mv;
-      const uint32_t num = static_cast<uint32_t>(mv - lo.mv) * (hi.pct - lo.pct);
-      return static_cast<uint8_t>(lo.pct + (num + span / 2U) / span);
-    }
-  }
-  return 100;
-}
-
-uint16_t batteryMvFromAdcSum(uint32_t sumMv, uint8_t samples) {
-  const float adcMv = static_cast<float>(sumMv) / samples;
-  const float scaledMv = adcMv * BATTERY_DIVIDER_RATIO * BATTERY_CALIBRATION;
-  return static_cast<uint16_t>(scaledMv + 0.5f);
-}
-
-uint16_t readBatteryMv() {
-  uint32_t sumMv = 0;
-  for (uint8_t i = 0; i < BATTERY_ADC_SAMPLES; ++i) {
-    sumMv += analogReadMilliVolts(BATTERY_ADC_PIN);
-    delayMicroseconds(200);
-  }
-  return batteryMvFromAdcSum(sumMv, BATTERY_ADC_SAMPLES);
-}
-
-uint8_t zigbeeBatteryVoltage(uint16_t mv) {
-  uint32_t value = (static_cast<uint32_t>(mv) + 50U) / 100U;
-  if (value > 255U) value = 255U;
-  return static_cast<uint8_t>(value);
-}
-
-uint8_t batteryPercentageZclRaw() {
-  return batteryValid ? static_cast<uint8_t>(batteryPercent * 2U) : BATTERY_ZCL_UNKNOWN;
-}
-
-uint8_t batteryVoltageZclRaw() {
-  return batteryValid ? zigbeeBatteryVoltage(batteryMv) : BATTERY_ZCL_UNKNOWN;
-}
-
-int16_t batteryDcVoltageZclRaw() {
-  return batteryValid ? static_cast<int16_t>(batteryMv) : DC_VOLTAGE_UNKNOWN;
-}
-
-void sampleBattery() {
-  batteryMv = readBatteryMv();
-  batteryValid = batteryMv >= BATTERY_VALID_MIN_MV && batteryMv <= BATTERY_VALID_MAX_MV;
-  batteryPercent = batteryValid ? batteryPercentFromMv(batteryMv) : 0;
-  lastBatterySampleMs = millis();
-  Serial.printf("[BAT] %u mV, %u%%, %s\n", batteryMv, batteryPercent, batteryValid ? "valid" : "not connected/invalid");
-}
-
-void beginRuntimeBatterySample() {
-  batterySampler.sumMv = 0;
-  batterySampler.samples = 0;
-  batterySampler.active = true;
-}
-
-bool serviceRuntimeBatterySample(uint32_t nowMs) {
-  if (!batterySampler.active || !backgroundWorkAllowed()) return false;
-  batterySampler.sumMv += analogReadMilliVolts(BATTERY_ADC_PIN);
-  if (++batterySampler.samples < BATTERY_ADC_SAMPLES) return false;
-  batterySampler.active = false;
-  batteryMv = batteryMvFromAdcSum(batterySampler.sumMv, batterySampler.samples);
-  batteryValid = batteryMv >= BATTERY_VALID_MIN_MV && batteryMv <= BATTERY_VALID_MAX_MV;
-  batteryPercent = batteryValid ? batteryPercentFromMv(batteryMv) : 0;
-  lastBatterySampleMs = nowMs;
-  batteryTelemetryDirty = true;
-  return true;
-}
-
 
 void enqueueRequestedState(bool state, uint8_t level) {
   portENTER_CRITICAL(&stateMux);
@@ -278,47 +140,6 @@ void updateIndicators(uint32_t nowMs) {
   } else {
     writeStatusLedLevel(smoothBreathingLevel(nowMs));
   }
-}
-
-void updateBatteryStatus(uint32_t nowMs) {
-  if (!batterySampler.active && (nowMs - lastBatterySampleMs) >= BATTERY_SAMPLE_INTERVAL_MS) {
-    beginRuntimeBatterySample();
-  }
-  if (serviceRuntimeBatterySample(nowMs)) {
-    zbBatterySensor.setBatteryTelemetryRaw(batteryPercentageZclRaw(), batteryVoltageZclRaw());
-    zbBatterySensor.setDCMeasurement(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE, batteryDcVoltageZclRaw());
-  }
-  if (!backgroundWorkAllowed()) return;
-
-  const bool periodic = (nowMs - lastBatteryReportMs) >= BATTERY_REPORT_INTERVAL_MS;
-  if (!batteryTelemetryDirty && !periodic) return;
-  if ((nowMs - lastBatteryReportAttemptMs) < BATTERY_REPORT_RETRY_MS) return;
-  lastBatteryReportAttemptMs = nowMs;
-  if (!Zigbee.connected()) return;
-
-  bool changed = !batteryReportInitialized || (batteryValid != lastReportedBatteryValid);
-  if (batteryReportInitialized && batteryValid && lastReportedBatteryValid) {
-    const uint8_t pctDelta = static_cast<uint8_t>(abs(static_cast<int>(batteryPercent) -
-                                                      static_cast<int>(lastReportedBatteryPercent)));
-    const uint16_t mvDelta = static_cast<uint16_t>(abs(static_cast<int>(batteryMv) -
-                                                       static_cast<int>(lastReportedBatteryMv)));
-    changed = changed || pctDelta >= BATTERY_REPORT_DELTA_PERCENT || mvDelta >= BATTERY_REPORT_DELTA_MV;
-  }
-  if (!changed && !periodic) {
-    batteryTelemetryDirty = false;
-    return;
-  }
-
-  const bool pctOk = zbBatterySensor.reportBatteryPercentage();
-  const bool voltOk = zbBatterySensor.reportDC(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE);
-  if (!(pctOk && voltOk)) return;
-
-  lastReportedBatteryPercent = batteryPercent;
-  lastReportedBatteryMv = batteryMv;
-  lastReportedBatteryValid = batteryValid;
-  batteryReportInitialized = true;
-  batteryTelemetryDirty = false;
-  lastBatteryReportMs = nowMs;
 }
 
 void localToggle() {
@@ -409,29 +230,14 @@ void setup() {
     ESP.restart();
   }
 
-  pinMode(BATTERY_ADC_PIN, INPUT);
-  analogReadResolution(12);
-  sampleBattery();
-
   loadPersistentState();
 
   zigbeeLight.setStateChangedCallback(onZigbeeLightChange);
   zigbeeLight.setIdentifyChangedCallback(onIdentify);
 
-  // EP1: HA Meter Interface with standard Power Configuration and Electrical Measurement/DCVoltage.
-  if (!zbBatterySensor.addDCMeasurement(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE) ||
-      !zbBatterySensor.setDCMultiplierDivisor(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE, 1, 1000) ||
-      !zbBatterySensor.setDCMinMaxValue(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE, 2500, 4400) ||
-      !zbBatterySensor.addBatteryPowerConfiguration(batteryPercentageZclRaw(), batteryVoltageZclRaw()) ||
-      !zbBatterySensor.setManufacturerAndModel(MANUFACTURER, "DBL-BAT")) {
-    Serial.println("[FATAL] Failed to configure EP1 battery sensor");
-    ESP.restart();
-  }
-  zbBatterySensor.setVersion(ZIGBEE_APP_VERSION);
-  zbBatterySensor.setHardwareVersion(ZIGBEE_HW_VERSION);
-
-  if (!Zigbee.addEndpoint(&zbBatterySensor)) {
-    Serial.println("[FATAL] Failed to register EP1 battery endpoint");
+  // EP1: standards-based battery telemetry starts with unknown values.
+  if (!battery.configureEndpoint() || !Zigbee.addEndpoint(battery.endpoint())) {
+    Serial.println("[FATAL] Failed to configure/register EP1 battery sensor");
     ESP.restart();
   }
 
@@ -442,11 +248,8 @@ void setup() {
     ESP.restart();
   }
 
-  // Make battery endpoint attributes match the sampled state after stack start.
-  zbBatterySensor.setBatteryTelemetryRaw(batteryPercentageZclRaw(), batteryVoltageZclRaw());
-  zbBatterySensor.setDCMeasurement(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE, batteryDcVoltageZclRaw());
-  if (!zbBatterySensor.setDCReporting(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE, 0, 300, 20)) {
-    Serial.println("[WARN] Could not install default DCVoltage reporting; coordinator may configure it later");
+  if (!battery.startRuntime()) {
+    Serial.println("[WARN] Battery runtime/reporting setup incomplete; retry/reporting may depend on coordinator");
   }
 
   Serial.println("[ZB] Stack started. Waiting for/joining network in background.");
@@ -457,7 +260,7 @@ void loop() {
   applyRequestedState(nowMs);
   updateButton(nowMs);
   updateIndicators(nowMs);
-  updateBatteryStatus(nowMs);
+  battery.service(nowMs, backgroundWorkAllowed());
   savePersistentStateIfNeeded(nowMs);
   delay(5);
 }

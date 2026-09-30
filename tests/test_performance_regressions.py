@@ -44,7 +44,7 @@ class PerformanceRegressionTests(unittest.TestCase):
     def test_runtime_battery_sampling_is_incremental(self):
         source = (ROOT / "src" / "battery_telemetry.cpp")
         text = read(source) or MAIN
-        self.assertIn("batterySampler", text)
+        self.assertIn("sampler_", text)
         runtime = function_text(text, "BatteryTelemetry::service") or function_text(text, "updateBatteryStatus")
         self.assertNotIn("delayMicroseconds", runtime)
 
