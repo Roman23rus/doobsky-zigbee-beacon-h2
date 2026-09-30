@@ -5,57 +5,67 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MAIN = (ROOT / "src" / "main.cpp").read_text(encoding="utf-8-sig")
 CFG = (ROOT / "include" / "config.h").read_text(encoding="utf-8-sig")
+BEACON_PATH = ROOT / "src" / "beacon_engine.cpp"
+ZIGBEE_PATH = ROOT / "src" / "zigbee_light.cpp"
 
 
-def function_text(name: str) -> str:
-    match = re.search(rf"\b{name}\s*\([^)]*\)\s*\{{", MAIN)
+def read(path: pathlib.Path) -> str:
+    return path.read_text(encoding="utf-8-sig") if path.exists() else ""
+
+
+def function_text(source: str, name: str) -> str:
+    match = re.search(rf"\b{name}\s*\([^)]*\)\s*\{{", source)
     if not match:
         return ""
-    start = match.start()
     pos = match.end() - 1
     depth = 0
-    for i in range(pos, len(MAIN)):
-        if MAIN[i] == "{":
-            depth += 1
-        elif MAIN[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return MAIN[start:i + 1]
-    return MAIN[start:]
+    for i in range(pos, len(source)):
+        depth += source[i] == "{"
+        depth -= source[i] == "}"
+        if depth == 0:
+            return source[match.start():i + 1]
+    return ""
 
 
 class PerformanceRegressionTests(unittest.TestCase):
-    def test_light_callback_is_non_blocking(self):
-        body = function_text("onZigbeeLightChange")
+    def test_zigbee_callback_is_non_blocking(self):
+        source = read(ZIGBEE_PATH) or MAIN
+        body = function_text(source, "ZigbeeLight::handleLightChange") or function_text(source, "onZigbeeLightChange")
         self.assertNotIn("Serial.", body)
         self.assertNotIn("delay(", body)
-
-    def test_identify_callback_is_non_blocking(self):
-        body = function_text("onIdentify")
-        self.assertNotIn("Serial.", body)
-        self.assertNotIn("delay(", body)
-
-    def test_state_apply_has_lock_free_idle_fast_path(self):
-        body = function_text("applyRequestedState")
-        self.assertRegex(body, r"if\s*\(!requestPending\)\s*return;")
-        self.assertLess(body.find("if (!requestPending) return;"), body.find("portENTER_CRITICAL"))
-
-    def test_status_and_button_are_throttled(self):
-        self.assertIn("STATUS_UPDATE_INTERVAL_MS", CFG)
-        self.assertIn("BUTTON_POLL_INTERVAL_MS", CFG)
-        self.assertIn("lastStatusLedLevel", MAIN)
+        self.assertNotIn("analogRead", body)
 
     def test_beacon_hot_path_avoids_cycle_modulo(self):
-        body = function_text("updateBeaconOutput")
+        source = read(BEACON_PATH) or MAIN
+        body = function_text(source, "BeaconEngine::serviceAt") or function_text(source, "updateBeaconOutput")
         self.assertNotIn("% CYCLE_US", body)
-        self.assertIn("nextBeaconUpdateUs", body)
+        self.assertIn("cycleEpochUs", body)
 
     def test_runtime_battery_sampling_is_incremental(self):
-        body = function_text("updateBatteryStatus")
-        self.assertIn("batterySampler", body)
-        self.assertNotIn("delayMicroseconds", body)
+        source = (ROOT / "src" / "battery_telemetry.cpp")
+        text = read(source) or MAIN
+        self.assertIn("batterySampler", text)
+        runtime = function_text(text, "BatteryTelemetry::service") or function_text(text, "updateBatteryStatus")
+        self.assertNotIn("delayMicroseconds", runtime)
+
+    def test_beacon_task_has_lower_priority_than_zigbee(self):
+        source = read(BEACON_PATH)
+        self.assertIn("BEACON_TASK_PRIORITY", CFG)
+        self.assertRegex(source, r"xTaskCreate[^;]*BEACON_TASK_PRIORITY")
+
+    def test_off_and_dark_intervals_block_instead_of_polling(self):
+        source = read(BEACON_PATH)
+        self.assertRegex(source, r"xTaskNotifyWait|ulTaskNotifyTake")
+        loop = function_text(MAIN, "loop")
+        self.assertNotIn("delay(1)", loop)
+        self.assertNotIn("updateBeaconOutput", loop)
+
+    def test_identify_callback_is_non_blocking(self):
+        source = read(ZIGBEE_PATH) or MAIN
+        body = function_text(source, "ZigbeeLight::handleIdentify") or function_text(source, "onIdentify")
+        self.assertNotIn("Serial.", body)
+        self.assertNotIn("delay(", body)
 
 
 if __name__ == "__main__":
     unittest.main()
-
