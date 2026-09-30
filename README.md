@@ -12,11 +12,13 @@ Firmware for a 12 V LED replica of the Doobsky lighthouse light characteristic, 
 - `ON` starts a local, drift-free `Fl(3).W.16.5s` cycle.
 - `OFF` immediately forces PWM to zero.
 - Zigbee brightness controls peak flash brightness.
+- The Zigbee lamp state is a static logical shadow: physical flashes never change Zigbee On/Off or CurrentLevel attributes.
+- The optical engine is event-driven: Zigbee commands wake it immediately, while OFF and dark intervals block until the next optical deadline.
 - Each flash uses a raised-cosine (`sin²`) optical envelope to imitate a rotating Fresnel/EMV-3 beam rather than a hard electronic blink.
 - Uses the ESP32-H2 hardware LEDC PWM at 20 kHz.
 - Uses only **on-board UI** on the ESP32-H2 SuperMini:
   - BOOT / GPIO9: short press = local toggle, hold 5 s = Zigbee factory reset.
-  - Blue user LED / GPIO13: Zigbee status. WS2812 / GPIO8: mirrors the lighthouse flash envelope.
+  - Blue user LED / GPIO13: breathes while joining, may blink for Identify, and is OFF after a successful Zigbee connection. WS2812 / GPIO8 mirrors the lighthouse flash envelope.
 - Saves On/Off and level to NVS with delayed writes.
 - Default build is **Zigbee End Device**. It does not route traffic for other Zigbee nodes.
 - EP1 identifies as `Doobsky / DBL-BAT`; EP2 identifies as `Doobsky / DBL-01`.
@@ -37,7 +39,7 @@ Recommended prototype load: 12 V constant-voltage LED module. For battery sensin
 
 ### Battery monitoring
 
-The firmware samples the 1S Li-ion cell every 60 s using 32 incremental calibrated ADC readings scheduled outside the flash window, and converts the cell voltage to an estimated 0-100% state of charge using a piecewise Li-ion discharge curve. Zigbee exposes `BatteryVoltage` and `BatteryPercentageRemaining` in Power Configuration and high-resolution `DCVoltage` in Electrical Measurement. If the ADC reading is invalid, firmware publishes the ZCL unknown sentinels (`0xFF` for the battery fields and `0x8000` for DCVoltage) instead of fabricated zero values. Battery percentage is explicitly reported when it changes by at least 2% or every 5 minutes; DC voltage uses standard attribute reporting. ADC, NVS writes, and Zigbee telemetry are deferred when a flash is active or less than 50 ms away.
+The firmware samples the 1S Li-ion cell every 60 s using 32 incremental calibrated ADC readings scheduled outside the flash window, and converts the cell voltage to an estimated 0-100% state of charge using a piecewise Li-ion discharge curve. Startup no longer blocks on a 32-sample ADC read: EP1 starts with standard ZCL `unknown` values, Zigbee starts immediately, and the first real sample is accumulated incrementally in safe background windows. Zigbee exposes `BatteryVoltage` and `BatteryPercentageRemaining` in Power Configuration and high-resolution `DCVoltage` in Electrical Measurement. If the ADC reading is invalid, firmware publishes the ZCL unknown sentinels (`0xFF` for the battery fields and `0x8000` for DCVoltage) instead of fabricated zero values. Battery percentage is explicitly reported when it changes by at least 2% or every 5 minutes; DC voltage uses standard attribute reporting. ADC, NVS writes, and Zigbee telemetry are deferred when a flash is active or less than 50 ms away.
 
 ## Build environment
 
@@ -51,12 +53,14 @@ pio run -e esp32-h2-supermini-end-device -t upload
 pio device monitor -b 115200
 ```
 
+GitHub Actions runs the Python regression suite and a real ESP32-H2 PlatformIO build for pull requests and pushes to `main`/`feature/**`.
+
 ## Pairing
 
 1. Put your Zigbee coordinator/SprutHub into device-add mode.
 2. Power the ESP32-H2 SuperMini from USB-C.
 3. Pairing progress is visible in USB serial log.
-4. Blue LED indicates Zigbee state; the WS2812 mirrors the lighthouse flashes.
+4. Blue LED breathes while joining and turns OFF after connection; the WS2812 continues to mirror lighthouse flashes.
 5. To erase Zigbee network data and pair again, hold **BOOT for 5 seconds**.
 
 No external pairing button or status LED is required.
@@ -94,7 +98,7 @@ The flash shape is a fixed `sin²(pi*x)` raised-cosine pass. Firmware uses a pre
 
 ## Firmware version
 
-`0.7.3-alpha.1`
+`0.8.0-alpha.1`
 
 Alpha status is intentional: Zigbee/PWM architecture is ready, but the exact Doobsky per-element timing still awaits primary-source confirmation and the final LED/optics should be visually calibrated on the physical model.
 
@@ -108,4 +112,4 @@ For through-hole parts, standard 0.25 W resistors are recommended. R1/R2 (100 kO
 
 ## Hub compatibility
 
-The firmware uses standard Zigbee HA/ZCL clusters only. Hub UI support is coordinator-specific: direct pairing with the Yandex Zigbee hub currently exposes the Dimmable Light endpoint, while the separate battery Meter Interface endpoint may remain hidden in the Yandex app. SprutHub, ZHA, Zigbee2MQTT and other coordinators can inspect the standard EP1 clusters independently of that Yandex UI limitation.
+The firmware uses standard Zigbee HA/ZCL clusters only. EP2 behaves as a normal static Dimmable Light: when it is ON, physical `Fl(3).W.16.5s` PWM/WS2812 flashes do not toggle Zigbee On/Off and do not change CurrentLevel. Hub UI support is coordinator-specific: direct pairing with the Yandex Zigbee hub currently exposes the Dimmable Light endpoint, while the separate battery Meter Interface endpoint may remain hidden in the Yandex app. SprutHub, ZHA, Zigbee2MQTT and other coordinators can inspect the standard EP1 clusters independently of that Yandex UI limitation.
