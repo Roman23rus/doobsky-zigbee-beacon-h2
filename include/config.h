@@ -7,7 +7,7 @@ namespace BeaconConfig {
 // -----------------------------------------------------------------------------
 // Firmware identity
 // -----------------------------------------------------------------------------
-inline constexpr char FW_VERSION[] = "0.7.3-alpha.1";
+inline constexpr char FW_VERSION[] = "0.8.0-alpha.1";
 inline constexpr char MANUFACTURER[] = "Doobsky";
 inline constexpr char MODEL[] = "DBL-01";
 inline constexpr uint8_t BATTERY_SENSOR_ENDPOINT = 1;
@@ -34,7 +34,8 @@ inline constexpr uint8_t STATUS_LED_PWM_RESOLUTION_BITS = 8;
 inline constexpr uint32_t ZIGBEE_BREATHE_PERIOD_MS = 1600;
 inline constexpr uint32_t RGB_UPDATE_US = 5000;
 inline constexpr uint32_t STATUS_UPDATE_INTERVAL_MS = 10;
-inline constexpr uint32_t BUTTON_POLL_INTERVAL_MS = 5;
+inline constexpr uint32_t BUTTON_POLL_INTERVAL_MS = 10;
+inline constexpr uint32_t HOUSEKEEPING_INTERVAL_MS = 10;
 
 // 1S Li-ion battery monitor: BAT+ -> 100k -> GPIO1 -> 100k -> GND.
 // Add 100 nF from GPIO1 to GND; use 1% resistors for good accuracy.
@@ -57,6 +58,8 @@ inline constexpr uint8_t PWM_RESOLUTION_BITS = 10;
 inline constexpr uint16_t PWM_MAX = (1U << PWM_RESOLUTION_BITS) - 1U;
 inline constexpr uint32_t ENVELOPE_UPDATE_US = 1000; // 1 ms envelope resolution
 inline constexpr int64_t BACKGROUND_WORK_GUARD_US = 50'000;
+inline constexpr uint8_t BEACON_TASK_PRIORITY = 4;
+inline constexpr uint32_t BEACON_TASK_STACK_SIZE = 4096;
 
 // -----------------------------------------------------------------------------
 // Doobsky lighthouse light characteristic
