@@ -205,6 +205,21 @@ bool BatteryTelemetry::serviceSample(uint32_t nowMs) {
   return true;
 }
 
+bool BatteryTelemetry::needsService(uint32_t nowMs) const {
+  if (!runtimeStarted_) return false;
+  if (sampler_.active) return true;
+
+  if ((nowMs - lastBatterySampleMs_) >= BATTERY_SAMPLE_INTERVAL_MS) {
+    return true;
+  }
+
+  const bool periodic =
+      (nowMs - lastBatteryReportMs_) >= BATTERY_REPORT_INTERVAL_MS;
+  if (!batteryTelemetryDirty_ && !periodic) return false;
+
+  return (nowMs - lastBatteryReportAttemptMs_) >= BATTERY_REPORT_RETRY_MS;
+}
+
 void BatteryTelemetry::service(uint32_t nowMs, bool backgroundAllowed) {
   if (!runtimeStarted_ || !backgroundAllowed) return;
 
