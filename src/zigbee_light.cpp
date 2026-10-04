@@ -29,7 +29,7 @@ bool ZigbeeLight::begin(bool initialOn, uint8_t initialLevel) {
 
   if (!Zigbee.addEndpoint(&endpoint_)) return false;
 
-  Zigbee.setRxOnWhenIdle(true);
+  Zigbee.setRxOnWhenIdle(ZIGBEE_RX_ON_WHEN_IDLE);
   if (!Zigbee.begin(ZIGBEE_END_DEVICE)) return false;
 
   return endpoint_.setLight(initialOn, initialLevel);
