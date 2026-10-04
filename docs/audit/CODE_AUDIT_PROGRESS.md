@@ -346,3 +346,12 @@ GitHub Actions run #60 после фиксации toolchain завершён у
 - добавлен раздел профиля энергопотребления: CPU 64 МГц, housekeeping 20 мс, RGB 10 мс, always-on Zigbee RX и оптимизированная NVS/battery scheduling.
 
 Коммит: `4eb2ca73` — `docs: align README with audited power profile`.
+
+
+### Контрольная точка — CHANGELOG синхронизирован
+
+Статус: завершён.
+
+Раздел `Unreleased` обновлён под фактический результат аудита: синхронизация, CurrentLevel correction, NVS, battery scheduling, CPU 64 МГц, reduced housekeeping/RGB rate и pinned toolchain.
+
+Коммит: `e9059e84` — `docs: record audit changes in changelog`.
