@@ -268,3 +268,23 @@ GitHub Actions run #50 успешно завершён на коммите `c140
 Важное наблюдение воспроизводимости: `platformio.ini` использует URL `.../releases/download/stable/platform-espressif32.zip`. Это плавающая ссылка: предыдущая локальная сборка использовала Arduino-ESP32 3.3.11, а текущий CI уже получил 3.3.12. Поэтому небольшой рост RAM/Flash нельзя честно приписать только изменениям прошивки. Перед финализацией аудита стоит решить, фиксировать ли конкретную версию pioarduino для полностью воспроизводимых сборок.
 
 Аппаратный runtime test пока не выполнен: Desktop Commander/ПК недоступен. Это не блокирует статический аудит и CI, но остаётся обязательным перед переносом power-sensitive изменений в `main`.
+
+
+### Контрольная точка — воспроизводимая сборка
+
+Статус: завершён, ожидается повторный CI после фиксации toolchain.
+
+После успешного CI обнаружена плавающая зависимость сборки: URL `stable` уже переключился с Arduino-ESP32 3.3.11 на 3.3.12. Для исключения скрытых изменений toolchain:
+
+- pioarduino зафиксирован на релизе **55.03.312**:
+  `https://github.com/pioarduino/platform-espressif32/releases/download/55.03.312/platform-espressif32.zip`;
+- GitHub Actions теперь устанавливает **PlatformIO 6.2.0** вместо `--upgrade platformio`;
+- добавлен `tests/test_build_reproducibility.py`, запрещающий возврат к плавающему `stable` и неприкреплённой версии PlatformIO.
+
+Коммиты:
+
+- `d006e438` — `build: pin validated pioarduino platform release`;
+- `02525762` — `ci: pin validated PlatformIO version`;
+- `e2ee7140` — `test: lock build toolchain reproducibility`.
+
+Следующий шаг: дождаться нового CI и подтвердить, что зафиксированная среда даёт тот же успешный build.
