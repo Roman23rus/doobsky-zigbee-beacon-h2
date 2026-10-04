@@ -98,18 +98,21 @@ bool BatteryTelemetry::configureEndpoint() {
 }
 
 bool BatteryTelemetry::startRuntime() {
-  if (!endpoint_.setBatteryTelemetryRaw(
-          batteryPercentageZclRaw(), batteryVoltageZclRaw())) {
-    return false;
-  }
-  if (!endpoint_.setDCMeasurement(
-          ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE,
-          batteryDcVoltageZclRaw())) {
-    return false;
-  }
+  // Runtime sampling should continue even if one initial Zigbee attribute
+  // operation fails transiently. A completed ADC sample writes the attributes
+  // again, while the return value still tells setup that initialization was
+  // not fully successful.
   runtimeStarted_ = true;
-  return endpoint_.setDCReporting(
+
+  const bool batteryAttrsOk = endpoint_.setBatteryTelemetryRaw(
+      batteryPercentageZclRaw(), batteryVoltageZclRaw());
+  const bool dcAttrOk = endpoint_.setDCMeasurement(
+      ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE,
+      batteryDcVoltageZclRaw());
+  const bool reportingOk = endpoint_.setDCReporting(
       ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE, 0, 300, 20);
+
+  return batteryAttrsOk && dcAttrOk && reportingOk;
 }
 
 ZigbeeEP *BatteryTelemetry::endpoint() {
