@@ -33,13 +33,16 @@ private:
   TaskHandle_t taskHandle_ = nullptr;
   esp_timer_handle_t timerHandle_ = nullptr;
 
+  // Written from Zigbee/main contexts, consumed by the BeaconEngine task.
   bool requestedOn_ = false;
   uint8_t requestedLevel_ = 0;
   bool requestDirty_ = false;
   bool restartCycleRequested_ = false;
 
+  // Runtime optical state is owned by the BeaconEngine task. activeOn_,
+  // lastPwmDuty_ and nextDeadlineUs_ are also read by isDarkWindowSafe(),
+  // so their writes are published under mux_.
   bool activeOn_ = false;
-  uint8_t activeLevel_ = 0;
   uint16_t activePeakDuty_ = 0;
 
   int64_t cycleEpochUs_ = 0;
