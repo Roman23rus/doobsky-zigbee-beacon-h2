@@ -144,10 +144,20 @@ uint8_t BatteryTelemetry::batteryPercentFromMv(uint16_t mv) {
 
 uint16_t BatteryTelemetry::batteryMvFromAdcSum(
     uint32_t sumMv, uint8_t samples) {
-  const float adcMv = static_cast<float>(sumMv) / samples;
-  const float scaledMv =
-      adcMv * BATTERY_DIVIDER_RATIO * BATTERY_CALIBRATION;
-  return static_cast<uint16_t>(scaledMv + 0.5f);
+  if (samples == 0) return 0;
+
+  // Fixed-point arithmetic avoids pulling floating-point work into the
+  // low-frequency battery path on the RISC-V ESP32-H2.
+  const uint64_t numerator =
+      static_cast<uint64_t>(sumMv) *
+      BATTERY_DIVIDER_NUMERATOR *
+      BATTERY_CALIBRATION_PERMILLE;
+  const uint64_t denominator =
+      static_cast<uint64_t>(samples) *
+      BATTERY_DIVIDER_DENOMINATOR *
+      1000ULL;
+  return static_cast<uint16_t>(
+      (numerator + denominator / 2ULL) / denominator);
 }
 
 uint8_t BatteryTelemetry::zigbeeBatteryVoltage(uint16_t mv) {
