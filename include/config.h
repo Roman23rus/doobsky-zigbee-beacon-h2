@@ -32,11 +32,16 @@ inline constexpr bool STATUS_LED_ACTIVE_HIGH = true;
 inline constexpr uint32_t STATUS_LED_PWM_FREQUENCY_HZ = 5000;
 inline constexpr uint8_t STATUS_LED_PWM_RESOLUTION_BITS = 8;
 inline constexpr uint32_t ZIGBEE_BREATHE_PERIOD_MS = 1600;
-inline constexpr uint32_t RGB_UPDATE_US = 5000;
+inline constexpr uint32_t RGB_UPDATE_US = 10'000;  // 100 Hz is visually smooth and halves WS2812 writes
 inline constexpr uint8_t RGB_STATUS_RED_LEVEL = 77;  // 30% steady red between beacon flashes
-inline constexpr uint32_t STATUS_UPDATE_INTERVAL_MS = 10;
-inline constexpr uint32_t BUTTON_POLL_INTERVAL_MS = 10;
-inline constexpr uint32_t HOUSEKEEPING_INTERVAL_MS = 10;
+inline constexpr uint32_t STATUS_UPDATE_INTERVAL_MS = 20;
+inline constexpr uint32_t BUTTON_POLL_INTERVAL_MS = 20;
+inline constexpr uint32_t HOUSEKEEPING_INTERVAL_MS = 20;
+
+// Keep immediate Zigbee command response while reducing CPU dynamic power.
+// ESP32-H2 officially supports 64 MHz; 802.15.4/APB peripherals remain clocked independently.
+inline constexpr uint32_t CPU_FREQUENCY_MHZ = 64;
+inline constexpr bool ZIGBEE_RX_ON_WHEN_IDLE = true;
 
 // 1S Li-ion battery monitor: BAT+ -> 100k -> GPIO1 -> 100k -> GND.
 // Add 100 nF from GPIO1 to GND; use 1% resistors for good accuracy.
