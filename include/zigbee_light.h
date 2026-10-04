@@ -34,7 +34,6 @@ private:
   mutable portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
   bool on_ = false;
   uint8_t level_ = 0;
-  bool identifyActive_ = false;
   StateChangedCallback stateChangedCallback_ = nullptr;
   IdentifyChangedCallback identifyChangedCallback_ = nullptr;
 };
