@@ -16,6 +16,7 @@ public:
 
   bool begin(bool initialOn, uint8_t initialLevel);
   bool setLocalState(bool on, uint8_t level);
+  void service();
   bool on() const;
   uint8_t level() const;
 
@@ -34,6 +35,8 @@ private:
   mutable portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
   bool on_ = false;
   uint8_t level_ = 0;
+  bool levelCorrectionPending_ = false;
+  uint8_t levelCorrection_ = 0;
   StateChangedCallback stateChangedCallback_ = nullptr;
   IdentifyChangedCallback identifyChangedCallback_ = nullptr;
 };
