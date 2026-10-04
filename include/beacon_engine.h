@@ -21,7 +21,7 @@ private:
   static void timerCallback(void *arg);
 
   void taskLoop();
-  void applyRequestedState();
+  void applyRequestedState(int64_t nowUs);
   int64_t serviceAt(int64_t nowUs);
   void armDeadline(int64_t deadlineUs);
   void stopDeadline();
