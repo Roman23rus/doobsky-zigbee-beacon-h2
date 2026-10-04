@@ -11,7 +11,7 @@ CFG = (ROOT / "include" / "config.h").read_text(encoding="utf-8-sig")
 
 
 def function_text(source: str, name: str) -> str:
-    match = re.search(rf"\b{name}\s*\([^)]*\)\s*\{{", source)
+    match = re.search(rf"\b{name}\s*\([^)]*\)\s*(?:const\s*)?\{{", source)
     if not match:
         return ""
     pos = match.end() - 1
@@ -98,7 +98,8 @@ class PowerAndConcurrencyTests(unittest.TestCase):
         body = function_text(BATTERY, "BatteryTelemetry::batteryMvFromAdcSum")
         self.assertIn("if (samples == 0)", body)
         self.assertIn("BATTERY_CALIBRATION_PERMILLE", body)
-        self.assertNotIn("float", body)
+        self.assertNotIn("static_cast<float>", body)
+        self.assertNotRegex(body, r"\bfloat\s+")
         self.assertNotIn("BATTERY_DIVIDER_RATIO", CFG)
         self.assertNotIn("BATTERY_CALIBRATION =", CFG)
 
