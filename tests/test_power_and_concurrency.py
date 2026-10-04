@@ -73,12 +73,26 @@ class PowerAndConcurrencyTests(unittest.TestCase):
         self.assertEqual(integer_constant("STATUS_UPDATE_INTERVAL_MS"), 20)
         self.assertEqual(integer_constant("BUTTON_POLL_INTERVAL_MS"), 20)
         self.assertEqual(integer_constant("RGB_UPDATE_US"), 10_000)
+        self.assertLessEqual(integer_constant("PREFS_WRITE_DELAY_MS"), 1_000)
 
     def test_beacon_hot_path_avoids_unneeded_locks(self):
         body = function_text(BEACON, "BeaconEngine::serviceAt")
         self.assertNotIn("portENTER_CRITICAL", body)
         arm = function_text(BEACON, "BeaconEngine::armDeadline")
         self.assertNotIn("esp_timer_stop", arm)
+
+    def test_background_work_is_blocked_during_pending_beacon_transition(self):
+        body = function_text(BEACON, "BeaconEngine::isDarkWindowSafe")
+        self.assertIn("pending = requestDirty_", body)
+        self.assertIn("if (pending || duty != 0)", body)
+        self.assertIn("if (deadline <= nowUs) return false", body)
+
+    def test_idle_battery_path_skips_background_safety_checks(self):
+        battery_h = (ROOT / "include" / "battery_telemetry.h").read_text(encoding="utf-8-sig")
+        self.assertIn("bool needsService(uint32_t nowMs) const", battery_h)
+        loop = function_text(MAIN, "loop")
+        self.assertIn("if (battery.needsService(nowMs))", loop)
+        self.assertIn("battery.service(nowMs, backgroundWorkAllowed())", loop)
 
     def test_battery_scaling_is_fixed_point_and_zero_safe(self):
         body = function_text(BATTERY, "BatteryTelemetry::batteryMvFromAdcSum")
