@@ -1,51 +1,76 @@
 # Doobsky Zigbee Beacon — ESP32-H2 SuperMini
 
-Firmware for a 12 V LED replica of the Doobsky lighthouse light characteristic, controlled over Zigbee 3.0.
+Прошивка для 12-вольтовой LED-модели маяка с характеристикой огня Doobsky, управляемой по Zigbee 3.0.
 
-## What it does
+## Возможности
 
-- EP1 is a Zigbee HA **Meter Interface** (profile `0x0104`, device `0x0053`) for battery telemetry.
-- EP1 uses **Power Configuration `0x0001`** for `BatteryVoltage` and `BatteryPercentageRemaining`.
-- EP1 uses **Electrical Measurement `0x0B04` / DCVoltage `0x0100`**, with multiplier/divisor `1/1000` for millivolt resolution.
-- EP2 is a Zigbee HA **Dimmable Light** (profile `0x0104`, device `0x0101`).
-- Standard clusters only; no manufacturer-specific clusters and no spoofed third-party model IDs.
-- `ON` starts a local, drift-free `Fl(3).W.16.5s` cycle.
-- `OFF` immediately forces PWM to zero.
-- Zigbee brightness controls peak flash brightness.
-- The Zigbee lamp state is a static logical shadow: physical flashes never change Zigbee On/Off or CurrentLevel attributes.
-- The optical engine is event-driven: Zigbee commands wake it immediately, while OFF and dark intervals block until the next optical deadline.
-- Each flash uses a raised-cosine (`sin²`) optical envelope to imitate a rotating Fresnel/EMV-3 beam rather than a hard electronic blink.
-- Uses the ESP32-H2 hardware LEDC PWM at 20 kHz.
-- Uses only **on-board UI** on the ESP32-H2 SuperMini:
-  - BOOT / GPIO9: short press = local toggle, hold 5 s = Zigbee factory reset.
-  - Blue user LED / GPIO13: breathes while joining, may blink for Identify, and is OFF after a successful Zigbee connection. WS2812 / GPIO8 mirrors the lighthouse flash envelope.
-- Saves On/Off and level to NVS with delayed writes.
-- Default build is **Zigbee End Device**. It does not route traffic for other Zigbee nodes.
-- EP1 identifies as `Doobsky / DBL-BAT`; EP2 identifies as `Doobsky / DBL-01`.
+- EP1 — стандартное Zigbee HA-устройство **Meter Interface** (профиль `0x0104`, устройство `0x0053`) для телеметрии аккумулятора.
+- EP1 использует кластер **Power Configuration `0x0001`** для `BatteryVoltage` и `BatteryPercentageRemaining`.
+- EP1 использует **Electrical Measurement `0x0B04` / DCVoltage `0x0100`** с множителем/делителем `1/1000` для передачи напряжения с разрешением 1 мВ.
+- EP2 — стандартный Zigbee HA **Dimmable Light** (профиль `0x0104`, устройство `0x0101`).
+- Используются только стандартные Zigbee-кластеры: без manufacturer-specific кластеров и без подмены идентификаторов сторонних устройств.
+- Команда `ON` запускает локальный цикл `Fl(3).W.16.5s` без накопления временной ошибки.
+- Команда `OFF` немедленно переводит основной PWM в ноль.
+- Яркость Zigbee регулирует максимальную яркость вспышки.
+- Логическое состояние лампы Zigbee не повторяет физические вспышки: цикл маяка не изменяет атрибуты Zigbee On/Off и CurrentLevel.
+- Последняя ненулевая яркость сохраняется в NVS и восстанавливается после отключения питания. Команда `OFF` с `CurrentLevel=0` не стирает запомненную яркость.
+- Оптический движок событийный: Zigbee-команды будят его сразу, а в тёмных интервалах выполнение ожидает следующего оптического события.
+- Каждая вспышка использует плавную огибающую `sin²`, имитирующую проход луча вращающейся оптики, а не резкое электронное мигание.
+- Основной LED управляется аппаратным PWM LEDC с частотой **1 кГц**. Эта частота проверена на реальном 12-вольтовом LED-модуле и обеспечивает плавную регулировку.
+- Используется встроенная индикация ESP32-H2 SuperMini:
+  - BOOT / GPIO9: короткое нажатие — локальное включение/выключение, удержание 5 с — сброс Zigbee;
+  - синий LED / GPIO13: плавно «дышит» во время поиска/подключения к сети, может мигать при Identify и гаснет после успешного подключения;
+  - встроенный RGB/WS2812 / GPIO8: при включённом маяке между вспышками горит красным на 30%, а во время вспышки плавно переходит в белый, повторяя огибающую основного света; при выключенном маяке RGB полностью погашен.
+- Состояние On/Off и яркость сохраняются в NVS с отложенной записью.
+- По умолчанию устройство работает как **Zigbee End Device** и не маршрутизирует трафик других Zigbee-устройств.
+- EP1 идентифицируется как `Doobsky / DBL-BAT`, EP2 — как `Doobsky / DBL-01`.
 
-## Hardware connection
+## Подключение оборудования
 
-| ESP32-H2 SuperMini | External circuit |
+Эталонная аппаратная схема находится в:
+
+`docs/hardware/reference/doobsky-zigbee-beacon-reference.png`
+
+Основные соединения:
+
+| Узел | Подключение |
 |---|---|
-| `5V` | TPS61088 boost `VIN` |
-| `GND` | TPS61088 `GND`, AO3400A `Source` |
-| `GPIO10` | 100 ohm -> AO3400A `Gate` |
-| `GPIO1` | midpoint of 100 kOhm / 100 kOhm battery divider |
-| AO3400A Gate | 100 kOhm -> GND |
-| TPS61088 `12V OUT` | 12 V constant-voltage COB LED `+` |
-| COB LED `-` | AO3400A `Drain` |
+| Аккумулятор 1S Li-ion 21700 | через F1 1.5 A к LX-LBC01 |
+| LX-LBC01 `OUT+` | шина `+5V_SYS` |
+| `+5V_SYS` | вход TPS61088 и через 1N5819 на вход 5V ESP32-H2 |
+| 1N5819 | анод к `+5V_SYS`, катод (полоска) к 5V ESP32-H2 |
+| Общая земля | LX-LBC01, ESP32-H2, TPS61088 и силовой ключ |
+| `GPIO10` | через 100 Ом на Gate AO3400A |
+| Gate AO3400A | через 100 кОм на GND |
+| TPS61088 `12V OUT` | `+` 12-вольтового LED-модуля |
+| `-` LED-модуля | Drain AO3400A |
+| Source AO3400A | GND |
+| `GPIO1` | середина делителя 100 кОм / 100 кОм для контроля аккумулятора |
 
-Recommended prototype load: 12 V constant-voltage LED module. For battery sensing connect `BAT+ -> 100k -> GPIO1 -> 100k -> GND` and add `100 nF` from GPIO1 to GND. Use 1% resistors.
+Для контроля аккумулятора используется цепь `BAT+ -> 100k -> GPIO1 -> 100k -> GND` и конденсатор `100 нФ` от GPIO1 к GND. Для делителя рекомендуется использовать резисторы 1%.
 
-### Battery monitoring
+> На этапе аппаратной отладки вместо TPS61088 допускается внешний стабилизированный БП 12 В с обязательным объединением его GND с GND ESP32-H2. 12 В нельзя подавать на `+5V_SYS` или вход 5V ESP32.
 
-The firmware samples the 1S Li-ion cell every 60 s using 32 incremental calibrated ADC readings scheduled outside the flash window, and converts the cell voltage to an estimated 0-100% state of charge using a piecewise Li-ion discharge curve. Startup no longer blocks on a 32-sample ADC read: EP1 starts with standard ZCL `unknown` values, Zigbee starts immediately, and the first real sample is accumulated incrementally in safe background windows. Zigbee exposes `BatteryVoltage` and `BatteryPercentageRemaining` in Power Configuration and high-resolution `DCVoltage` in Electrical Measurement. If the ADC reading is invalid, firmware publishes the ZCL unknown sentinels (`0xFF` for the battery fields and `0x8000` for DCVoltage) instead of fabricated zero values. Battery percentage is explicitly reported when it changes by at least 2% or every 5 minutes; DC voltage uses standard attribute reporting. ADC, NVS writes, and Zigbee telemetry are deferred when a flash is active or less than 50 ms away.
+### Контроль аккумулятора
 
-## Build environment
+Прошивка измеряет напряжение 1S Li-ion аккумулятора раз в 60 секунд. Используется 32 откалиброванных ADC-измерения, которые выполняются поэтапно вне активной вспышки. Напряжение преобразуется в приблизительный заряд 0–100% по кусочно-заданной кривой разряда Li-ion.
 
-This project uses the current pioarduino PlatformIO platform because official PlatformIO support for ESP32-H2/modern Arduino-ESP32 has historically lagged. The current pioarduino stable line uses Arduino-ESP32 3.3.x.
+При запуске EP1 сначала публикует стандартные ZCL-значения «unknown», поэтому старт Zigbee не блокируется ожиданием серии ADC-измерений. После первого успешного измерения публикуются реальные значения.
 
-Default (recommended):
+В Zigbee доступны:
+- `BatteryVoltage`;
+- `BatteryPercentageRemaining`;
+- `DCVoltage` с разрешением 1 мВ.
+
+При некорректном показании ADC прошивка передаёт стандартные ZCL-маркеры неизвестного значения: `0xFF` для полей аккумулятора и `0x8000` для DCVoltage.
+
+Процент заряда принудительно публикуется при изменении минимум на 2% либо раз в 5 минут. ADC, запись NVS и фоновая Zigbee-телеметрия откладываются, если идёт вспышка или до неё остаётся менее 50 мс.
+
+## Среда сборки
+
+Проект использует актуальную ветку pioarduino для PlatformIO. В текущей конфигурации используется Arduino-ESP32 3.3.x.
+
+Сборка и прошивка:
 
 ```bash
 pio run -e esp32-h2-supermini-end-device
@@ -53,63 +78,67 @@ pio run -e esp32-h2-supermini-end-device -t upload
 pio device monitor -b 115200
 ```
 
-GitHub Actions runs the Python regression suite and a real ESP32-H2 PlatformIO build for pull requests and pushes to `main`/`feature/**`.
+GitHub Actions запускает Python-регрессионные тесты и реальную сборку PlatformIO для ESP32-H2 при pull request и push в `main` / `feature/**`.
 
-## Pairing
+## Подключение к Zigbee
 
-1. Put your Zigbee coordinator/SprutHub into device-add mode.
-2. Power the ESP32-H2 SuperMini from USB-C.
-3. Pairing progress is visible in USB serial log.
-4. Blue LED breathes while joining and turns OFF after connection; the WS2812 continues to mirror lighthouse flashes.
-5. To erase Zigbee network data and pair again, hold **BOOT for 5 seconds**.
+1. Переведите Zigbee-координатор или SprutHub в режим добавления устройства.
+2. Подайте питание на ESP32-H2 SuperMini.
+3. Ход подключения можно наблюдать в Serial Monitor.
+4. Синий LED плавно «дышит» во время подключения и гаснет после успешного входа в сеть.
+5. Для удаления Zigbee-сети и повторного сопряжения удерживайте **BOOT 5 секунд**.
 
-No external pairing button or status LED is required.
+Отдельная внешняя кнопка сопряжения не требуется.
 
-## Timing profile
+## Временной профиль маяка
 
-The full period is exactly **16.500000 s** in firmware and phase is calculated from `esp_timer_get_time()`, so loop execution time does not accumulate cycle drift.
+Полный период в прошивке составляет ровно **16.500000 с**. Фаза вычисляется от `esp_timer_get_time()`, поэтому время выполнения основного цикла не накапливает дрейф.
 
-Current segment table:
-
-| Segment | Duration |
+| Сегмент | Длительность |
 |---|---:|
-| Flash 1 | 353.571 ms |
-| Dark | 3064.286 ms |
-| Flash 2 | 353.571 ms |
-| Dark | 3064.286 ms |
-| Flash 3 | 353.571 ms |
-| Long dark | 9310.715 ms |
-| **Total** | **16500.000 ms** |
+| Вспышка 1 | 353.571 мс |
+| Тёмный интервал | 3064.286 мс |
+| Вспышка 2 | 353.571 мс |
+| Тёмный интервал | 3064.286 мс |
+| Вспышка 3 | 353.571 мс |
+| Длинный тёмный интервал | 9310.715 мс |
+| **Итого** | **16500.000 мс** |
 
-### Important accuracy note
+### Важное замечание о точности
 
-`Fl(3).W.16.5s` and the 16.5 s period are confirmed characteristics. The individual segment values above are still an **engineering reconstruction** obtained by proportionally scaling the known EMV-3 14.0 s pattern (0.3 / 2.6 / 0.3 / 2.6 / 0.3 / 7.9 s). They are intentionally isolated in `include/config.h` so they can be replaced immediately when a primary Doobsky light-list entry with exact element durations is found.
+Характеристика `Fl(3).W.16.5s` и период 16,5 с подтверждены. Длительности отдельных элементов выше пока являются **инженерной реконструкцией**, полученной пропорциональным масштабированием известного цикла EMV-3 14,0 с (0.3 / 2.6 / 0.3 / 2.6 / 0.3 / 7.9 с).
 
-The flash shape is a fixed `sin²(pi*x)` raised-cosine pass. Firmware uses a precomputed 1 ms duty-cycle lookup table, preserving that envelope while removing runtime trigonometry from the time-critical path.
+Значения специально вынесены в `include/config.h`, чтобы их можно было заменить сразу после появления первичного источника с точной разбивкой характеристики Doobsky.
 
-## Pin notes for ESP32-H2 SuperMini
+Форма вспышки — фиксированная огибающая `sin²(pi*x)`. В прошивке используется заранее рассчитанная таблица duty cycle с шагом 1 мс, поэтому в критическом по времени участке нет вычислений тригонометрии.
+
+## GPIO ESP32-H2 SuperMini
 
 - BOOT: GPIO9.
-- Blue user LED: GPIO13.
-- Main PWM output: GPIO10.
-- Battery ADC: GPIO1 via 100k/100k divider and 100 nF filter capacitor.
-- Native USB is on GPIO26/27; firmware does not touch them.
-- On-board WS2812: GPIO8. It is only driven after boot, after the strapping state has already been sampled.
+- Синий пользовательский LED: GPIO13.
+- Основной PWM силового ключа: GPIO10.
+- ADC аккумулятора: GPIO1 через делитель 100 кОм / 100 кОм и фильтр 100 нФ.
+- Встроенный RGB/WS2812: GPIO8.
+- Native USB использует GPIO26/27; прошивка их не задействует.
 
-## Firmware version
+## Версия прошивки
 
 `0.8.0-alpha.1`
 
-Alpha status is intentional: Zigbee/PWM architecture is ready, but the exact Doobsky per-element timing still awaits primary-source confirmation and the final LED/optics should be visually calibrated on the physical model.
+Статус Alpha оставлен намеренно: архитектура Zigbee/PWM уже работает на реальном устройстве, но точные длительности отдельных элементов характеристики Doobsky ещё должны быть подтверждены первичным источником, а финальную LED-оптику предстоит откалибровать на готовой модели.
 
+## Совместимость с хабами
 
-### Green LED note
-The physical green LED is the battery/charger indicator and is not connected to an ESP32 GPIO, so firmware cannot use it as an ON/OFF indicator without a hardware modification.
+Прошивка использует только стандартные Zigbee HA/ZCL-кластеры.
 
+EP2 работает как обычный Dimmable Light: когда маяк включён, физические вспышки `Fl(3).W.16.5s` не изменяют Zigbee On/Off и CurrentLevel.
 
-## Resistor power
-For through-hole parts, standard 0.25 W resistors are recommended. R1/R2 (100 kOhm battery divider) should be 1%; R3/R4 may be 5%.
+Отображение сущностей зависит от конкретного координатора. При прямом подключении к Яндекс Хабу Dimmable Light отображается, а отдельный EP1 с батарейной телеметрией может быть скрыт интерфейсом Яндекса. SprutHub, ZHA, Zigbee2MQTT и другие координаторы могут независимо читать стандартные кластеры EP1.
 
-## Hub compatibility
+## Примечание о зелёном LED
 
-The firmware uses standard Zigbee HA/ZCL clusters only. EP2 behaves as a normal static Dimmable Light: when it is ON, physical `Fl(3).W.16.5s` PWM/WS2812 flashes do not toggle Zigbee On/Off and do not change CurrentLevel. Hub UI support is coordinator-specific: direct pairing with the Yandex Zigbee hub currently exposes the Dimmable Light endpoint, while the separate battery Meter Interface endpoint may remain hidden in the Yandex app. SprutHub, ZHA, Zigbee2MQTT and other coordinators can inspect the standard EP1 clusters independently of that Yandex UI limitation.
+Физический зелёный LED относится к цепи питания/заряда и не подключён к GPIO ESP32-H2, поэтому прошивка не может использовать его как программный индикатор состояния без аппаратной доработки.
+
+## Мощность резисторов
+
+Для выводных компонентов достаточно стандартных резисторов 0,25 Вт. Резисторы делителя аккумулятора 100 кОм рекомендуется использовать с точностью 1%.
