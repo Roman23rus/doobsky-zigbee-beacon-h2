@@ -60,17 +60,27 @@ void BeaconEngine::request(bool on, uint8_t level) {
 
 bool BeaconEngine::isDarkWindowSafe() const {
   bool on;
+  bool pending;
+  uint16_t peakDuty;
   uint16_t duty;
   int64_t deadline;
+
   portENTER_CRITICAL(&mux_);
   on = activeOn_;
+  pending = requestDirty_;
+  peakDuty = activePeakDuty_;
   duty = lastPwmDuty_;
   deadline = nextDeadlineUs_;
   portEXIT_CRITICAL(&mux_);
 
-  if (duty != 0) return false;
-  if (!on || deadline == 0) return true;
-  return (deadline - esp_timer_get_time()) > BACKGROUND_WORK_GUARD_US;
+  if (pending || duty != 0) return false;
+  if (!on || peakDuty == 0) return true;
+
+  // While the optical task is transitioning between deadlines, an ON beacon
+  // with no future deadline must be treated as busy, not as a dark window.
+  const int64_t nowUs = esp_timer_get_time();
+  if (deadline <= nowUs) return false;
+  return (deadline - nowUs) > BACKGROUND_WORK_GUARD_US;
 }
 
 void BeaconEngine::forceOff() {
@@ -112,36 +122,33 @@ void BeaconEngine::taskLoop() {
 }
 
 void BeaconEngine::applyRequestedState(int64_t nowUs) {
-  bool dirty;
-  bool newOn;
-  bool restartCycle;
-  uint8_t newLevel;
+  bool forceDark = false;
 
+  // Consume and publish a request atomically with respect to
+  // isDarkWindowSafe(). The arithmetic inside the critical section is tiny,
+  // and this closes the window where background work could start just as a
+  // new flash cycle is being armed.
   portENTER_CRITICAL(&mux_);
-  dirty = requestDirty_;
-  newOn = requestedOn_;
-  newLevel = requestedLevel_;
-  restartCycle = restartCycleRequested_;
-  requestDirty_ = false;
-  restartCycleRequested_ = false;
-  portEXIT_CRITICAL(&mux_);
-
-  if (!dirty) return;
-
-  const uint16_t newPeakDuty = peakDutyForLevel(newLevel);
-  const bool forceDark = !newOn || newPeakDuty == 0;
-
-  activePeakDuty_ = newPeakDuty;
-  if (forceDark) {
-    cycleEpochUs_ = 0;
-  } else if (restartCycle || cycleEpochUs_ == 0) {
-    cycleEpochUs_ = nowUs;
+  if (!requestDirty_) {
+    portEXIT_CRITICAL(&mux_);
+    return;
   }
 
-  portENTER_CRITICAL(&mux_);
+  const bool newOn = requestedOn_;
+  const uint8_t newLevel = requestedLevel_;
+  const bool restartCycle = restartCycleRequested_;
+  requestDirty_ = false;
+  restartCycleRequested_ = false;
+
+  activePeakDuty_ = peakDutyForLevel(newLevel);
+  forceDark = !newOn || activePeakDuty_ == 0;
   activeOn_ = newOn;
+
   if (forceDark) {
+    cycleEpochUs_ = 0;
     nextDeadlineUs_ = 0;
+  } else if (restartCycle || cycleEpochUs_ == 0) {
+    cycleEpochUs_ = nowUs;
   }
   portEXIT_CRITICAL(&mux_);
 
