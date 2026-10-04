@@ -45,8 +45,11 @@ inline constexpr bool ZIGBEE_RX_ON_WHEN_IDLE = true;
 
 // 1S Li-ion battery monitor: BAT+ -> 100k -> GPIO1 -> 100k -> GND.
 // Add 100 nF from GPIO1 to GND; use 1% resistors for good accuracy.
-inline constexpr float BATTERY_DIVIDER_RATIO = 2.0f;
-inline constexpr float BATTERY_CALIBRATION = 1.0f;
+inline constexpr uint16_t BATTERY_DIVIDER_NUMERATOR = 2;
+inline constexpr uint16_t BATTERY_DIVIDER_DENOMINATOR = 1;
+inline constexpr uint16_t BATTERY_CALIBRATION_PERMILLE = 1000;
+static_assert(BATTERY_DIVIDER_DENOMINATOR > 0, "Battery divider denominator must be non-zero");
+static_assert(BATTERY_CALIBRATION_PERMILLE > 0, "Battery calibration must be non-zero");
 inline constexpr uint8_t BATTERY_ADC_SAMPLES = 32;
 inline constexpr uint32_t BATTERY_SAMPLE_INTERVAL_MS = 60000;
 inline constexpr uint32_t BATTERY_REPORT_INTERVAL_MS = 300000;
