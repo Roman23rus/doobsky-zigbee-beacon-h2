@@ -1,0 +1,50 @@
+name: Ошибка
+description: Сообщить об ошибке прошивки, Zigbee или аппаратного поведения
+title: "[BUG] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Описание
+      description: Что произошло и что ожидалось?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия прошивки
+      placeholder: 0.8.0-alpha.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Область
+      options:
+        - Zigbee
+        - PWM / вспышки
+        - RGB / индикация
+        - Аккумулятор / ADC
+        - Питание / аппаратная часть
+        - Сборка / CI
+        - Другое
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как воспроизвести
+      description: Пошагово опишите действия.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи и измерения
+      description: Добавьте Serial-лог, измеренные напряжения/токи или другую диагностику. Не публикуйте секреты.

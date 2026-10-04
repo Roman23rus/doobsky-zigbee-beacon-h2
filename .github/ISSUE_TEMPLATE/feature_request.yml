@@ -1,0 +1,36 @@
+name: Предложение
+description: Предложить улучшение проекта
+title: "[FEAT] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Предложение
+      description: Что вы хотите добавить или изменить?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: Зачем это нужно
+      description: Какую задачу или проблему решает изменение?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Область
+      options:
+        - Zigbee
+        - Оптическая характеристика
+        - Аппаратная часть
+        - Питание / аккумулятор
+        - Интерфейс / индикация
+        - Документация
+        - Другое
+    validations:
+      required: true

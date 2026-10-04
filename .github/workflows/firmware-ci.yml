@@ -1,15 +1,26 @@
 name: Firmware CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches:
       - main
       - 'feature/**'
 
+permissions:
+  contents: read
+
+concurrency:
+  group: firmware-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-and-build:
+    name: Tests + ESP32-H2 build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,11 +30,19 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
       - name: Install PlatformIO
         run: python -m pip install --upgrade platformio
 
       - name: Run regression tests
-        run: python -m unittest discover -s tests -v
+        run: python -m unittest discover -s tests -p "test_*.py" -v
 
       - name: Build ESP32-H2 firmware
         run: pio run -e esp32-h2-supermini-end-device
