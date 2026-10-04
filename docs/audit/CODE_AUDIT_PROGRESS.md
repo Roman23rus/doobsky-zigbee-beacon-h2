@@ -330,3 +330,19 @@ GitHub Actions run #60 после фиксации toolchain завершён у
 Таким образом, оптимизации синхронизации, power policy, NVS, battery scheduling и защита CurrentLevel не увеличили статическое потребление RAM; цена во Flash — 472 байта на одинаковом toolchain.
 
 Этап 14 пока не выполняется: power-sensitive изменения нельзя переносить в `main` до аппаратной проверки 64 МГц, Zigbee, PWM/RGB и сохранения состояния.
+
+
+### Контрольная точка — README синхронизирован с аудитом
+
+Статус: завершён.
+
+При финальной проверке документации найдено расхождение: README всё ещё показывал плавающую ссылку pioarduino `stable` и не описывал новый power profile.
+
+Исправлено:
+
+- README теперь указывает PlatformIO **6.2.0**;
+- pioarduino **55.03.312** / Arduino-ESP32 **3.3.12**;
+- пример `platformio.ini` использует pinned release;
+- добавлен раздел профиля энергопотребления: CPU 64 МГц, housekeeping 20 мс, RGB 10 мс, always-on Zigbee RX и оптимизированная NVS/battery scheduling.
+
+Коммит: `4eb2ca73` — `docs: align README with audited power profile`.
