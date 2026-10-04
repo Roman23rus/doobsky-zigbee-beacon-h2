@@ -331,8 +331,9 @@ void loop() {
   updateButton(nowMs);
   updateIndicators(nowMs);
 
-  const bool backgroundAllowed = backgroundWorkAllowed();
-  battery.service(nowMs, backgroundAllowed);
+  if (battery.needsService(nowMs)) {
+    battery.service(nowMs, backgroundWorkAllowed());
+  }
   savePersistentStateIfNeeded(nowMs);
 
   delay(HOUSEKEEPING_INTERVAL_MS);
