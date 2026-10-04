@@ -98,7 +98,6 @@ void ZigbeeLight::handleIdentify(uint16_t timeSeconds) {
   const bool active = (timeSeconds != 0);
   IdentifyChangedCallback callback;
   portENTER_CRITICAL(&mux_);
-  identifyActive_ = active;
   callback = identifyChangedCallback_;
   portEXIT_CRITICAL(&mux_);
   if (callback != nullptr) callback(active);
