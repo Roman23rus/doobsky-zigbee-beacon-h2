@@ -39,6 +39,36 @@ bool ZigbeeLight::setLocalState(bool on, uint8_t level) {
   return endpoint_.setLight(on, normalizeLevel(level));
 }
 
+void ZigbeeLight::service() {
+  bool pending = false;
+  uint8_t level = 0;
+
+  portENTER_CRITICAL(&mux_);
+  if (levelCorrectionPending_) {
+    pending = true;
+    level = levelCorrection_;
+    levelCorrectionPending_ = false;
+  }
+  portEXIT_CRITICAL(&mux_);
+
+  if (!pending) return;
+
+  // ZigbeeDimmableLight updates its private CurrentLevel before invoking our
+  // callback. Correct a coordinator-supplied zero from normal task context;
+  // calling setClusterAttribute from inside the Zigbee callback could try to
+  // reacquire the Zigbee stack lock and deadlock.
+  if (endpoint_.getLightLevel() != 0) return;
+
+  if (!endpoint_.setLightLevel(level)) {
+    portENTER_CRITICAL(&mux_);
+    if (!levelCorrectionPending_) {
+      levelCorrection_ = level;
+      levelCorrectionPending_ = true;
+    }
+    portEXIT_CRITICAL(&mux_);
+  }
+}
+
 bool ZigbeeLight::on() const {
   bool value;
   portENTER_CRITICAL(&mux_);
@@ -80,11 +110,17 @@ void ZigbeeLight::handleLightChange(bool state, uint8_t level) {
   StateChangedCallback callback;
   portENTER_CRITICAL(&mux_);
 
-  // Some coordinators drive CurrentLevel to 0 when sending OFF. Treat that
-  // as an OFF transport detail, not as the user's remembered brightness.
-  // This keeps the last non-zero level available across OFF and power loss.
-  if (!state && level == 0) {
+  // Some coordinators drive CurrentLevel to 0 with OFF. The Arduino Zigbee
+  // endpoint stores that zero before invoking this callback, so remember the
+  // last usable level for application state and queue an attribute correction
+  // for normal task context. Treat ON+0 the same way so a later ON command
+  // cannot resurrect the stale zero as a 1%/minimum brightness state.
+  if (level == 0) {
     level = (level_ == 0 || level_ > ZIGBEE_MAX_LEVEL) ? DEFAULT_LEVEL : level_;
+    levelCorrection_ = level;
+    levelCorrectionPending_ = true;
+  } else {
+    levelCorrectionPending_ = false;
   }
 
   on_ = state;
