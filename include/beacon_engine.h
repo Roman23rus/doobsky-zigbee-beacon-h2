@@ -33,7 +33,7 @@ private:
   TaskHandle_t taskHandle_ = nullptr;
   esp_timer_handle_t timerHandle_ = nullptr;
 
-  // Written from Zigbee/main contexts, consumed by the BeaconEngine task.
+  // Written from external control contexts, consumed by the BeaconEngine task.
   bool requestedOn_ = false;
   uint8_t requestedLevel_ = 0;
   bool requestDirty_ = false;
