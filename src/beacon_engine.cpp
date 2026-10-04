@@ -122,6 +122,7 @@ void BeaconEngine::taskLoop() {
 }
 
 void BeaconEngine::applyRequestedState(int64_t nowUs) {
+  bool dirty = false;
   bool forceDark = false;
 
   // Consume and publish a request atomically with respect to
@@ -129,29 +130,28 @@ void BeaconEngine::applyRequestedState(int64_t nowUs) {
   // and this closes the window where background work could start just as a
   // new flash cycle is being armed.
   portENTER_CRITICAL(&mux_);
-  if (!requestDirty_) {
-    portEXIT_CRITICAL(&mux_);
-    return;
-  }
+  dirty = requestDirty_;
+  if (dirty) {
+    const bool newOn = requestedOn_;
+    const uint8_t newLevel = requestedLevel_;
+    const bool restartCycle = restartCycleRequested_;
+    requestDirty_ = false;
+    restartCycleRequested_ = false;
 
-  const bool newOn = requestedOn_;
-  const uint8_t newLevel = requestedLevel_;
-  const bool restartCycle = restartCycleRequested_;
-  requestDirty_ = false;
-  restartCycleRequested_ = false;
+    activePeakDuty_ = peakDutyForLevel(newLevel);
+    forceDark = !newOn || activePeakDuty_ == 0;
+    activeOn_ = newOn;
 
-  activePeakDuty_ = peakDutyForLevel(newLevel);
-  forceDark = !newOn || activePeakDuty_ == 0;
-  activeOn_ = newOn;
-
-  if (forceDark) {
-    cycleEpochUs_ = 0;
-    nextDeadlineUs_ = 0;
-  } else if (restartCycle || cycleEpochUs_ == 0) {
-    cycleEpochUs_ = nowUs;
+    if (forceDark) {
+      cycleEpochUs_ = 0;
+      nextDeadlineUs_ = 0;
+    } else if (restartCycle || cycleEpochUs_ == 0) {
+      cycleEpochUs_ = nowUs;
+    }
   }
   portEXIT_CRITICAL(&mux_);
 
+  if (!dirty) return;
   if (forceDark) {
     writePwm(0, nowUs);
   }
