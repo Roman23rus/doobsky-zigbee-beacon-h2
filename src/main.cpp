@@ -327,6 +327,7 @@ void setup() {
 
 void loop() {
   const uint32_t nowMs = millis();
+  zigbeeLight.service();
   applyRequestedState(nowMs);
   updateButton(nowMs);
   updateIndicators(nowMs);
