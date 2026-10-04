@@ -243,7 +243,7 @@ void BeaconEngine::armDeadline(int64_t deadlineUs) {
 }
 
 void BeaconEngine::stopDeadline() {
-  if (timerHandle_ != nullptr) {
+  if (timerHandle_ != nullptr && esp_timer_is_active(timerHandle_)) {
     esp_timer_stop(timerHandle_);
   }
 }
