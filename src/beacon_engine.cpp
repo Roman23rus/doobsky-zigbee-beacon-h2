@@ -42,15 +42,19 @@ bool BeaconEngine::begin() {
 
 void BeaconEngine::request(bool on, uint8_t level) {
   TaskHandle_t task = nullptr;
+
   portENTER_CRITICAL(&mux_);
-  const bool turningOn = on && !requestedOn_;
-  requestedOn_ = on;
-  requestedLevel_ = level;
-  requestDirty_ = true;
-  if (turningOn) {
-    restartCycleRequested_ = true;
+  const bool changed = on != requestedOn_ || level != requestedLevel_;
+  if (changed) {
+    const bool turningOn = on && !requestedOn_;
+    requestedOn_ = on;
+    requestedLevel_ = level;
+    requestDirty_ = true;
+    if (turningOn) {
+      restartCycleRequested_ = true;
+    }
+    task = taskHandle_;
   }
-  task = taskHandle_;
   portEXIT_CRITICAL(&mux_);
 
   if (task != nullptr) {
