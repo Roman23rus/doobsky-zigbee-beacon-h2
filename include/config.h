@@ -97,7 +97,7 @@ inline constexpr uint32_t FLASH3_START_US = 2U * (FLASH_US + SHORT_DARK_US);
 // -----------------------------------------------------------------------------
 inline constexpr uint32_t BUTTON_DEBOUNCE_MS = 35;
 inline constexpr uint32_t FACTORY_RESET_HOLD_MS = 5000;
-inline constexpr uint32_t PREFS_WRITE_DELAY_MS = 1500;
+inline constexpr uint32_t PREFS_WRITE_DELAY_MS = 750;  // coalesce UI changes, then persist promptly
 inline constexpr bool RESTORE_OUTPUT_AFTER_REBOOT = true;
 inline constexpr uint8_t DEFAULT_LEVEL = 254;
 
