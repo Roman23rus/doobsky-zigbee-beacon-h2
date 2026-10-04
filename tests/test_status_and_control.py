@@ -31,7 +31,7 @@ class StatusAndControlTests(unittest.TestCase):
 
     def test_identify_overrides_connected_off_state(self):
         body = function_text(MAIN, "updateIndicators")
-        identify = body.find("if (identifyActive)")
+        identify = body.find("if (identify)")
         connected = body.find("Zigbee.connected()")
         self.assertGreaterEqual(identify, 0)
         self.assertGreater(connected, identify)
