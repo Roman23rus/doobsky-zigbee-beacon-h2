@@ -61,6 +61,16 @@ class StatusAndControlTests(unittest.TestCase):
         self.assertIn('prefs.putBool("on"', body)
         self.assertIn('prefs.putUChar("level"', body)
 
+    def test_off_level_zero_does_not_erase_remembered_brightness(self):
+        main_body = function_text(MAIN, "applyRequestedState")
+        self.assertIn("!newOn && newLevel == 0", main_body)
+        self.assertIn("activeLevel", main_body)
+
+        zigbee = (ROOT / "src" / "zigbee_light.cpp").read_text(encoding="utf-8-sig")
+        handler = function_text(zigbee, "ZigbeeLight::handleLightChange")
+        self.assertIn("!state && level == 0", handler)
+        self.assertIn("level_", handler)
+
     def test_latest_beacon_request_is_authoritative(self):
         body = function_text(BEACON, "BeaconEngine::request")
         self.assertIn("requestedOn_ = on", body)

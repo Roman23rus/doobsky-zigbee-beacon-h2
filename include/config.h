@@ -33,6 +33,7 @@ inline constexpr uint32_t STATUS_LED_PWM_FREQUENCY_HZ = 5000;
 inline constexpr uint8_t STATUS_LED_PWM_RESOLUTION_BITS = 8;
 inline constexpr uint32_t ZIGBEE_BREATHE_PERIOD_MS = 1600;
 inline constexpr uint32_t RGB_UPDATE_US = 5000;
+inline constexpr uint8_t RGB_STATUS_RED_LEVEL = 77;  // 30% steady red between beacon flashes
 inline constexpr uint32_t STATUS_UPDATE_INTERVAL_MS = 10;
 inline constexpr uint32_t BUTTON_POLL_INTERVAL_MS = 10;
 inline constexpr uint32_t HOUSEKEEPING_INTERVAL_MS = 10;
@@ -53,7 +54,7 @@ inline constexpr uint16_t BATTERY_VALID_MAX_MV = 4400;
 // -----------------------------------------------------------------------------
 // PWM
 // -----------------------------------------------------------------------------
-inline constexpr uint32_t PWM_FREQUENCY_HZ = 20000;  // above audible range
+inline constexpr uint32_t PWM_FREQUENCY_HZ = 1000;  // validated with the 12 V LED module
 inline constexpr uint8_t PWM_RESOLUTION_BITS = 10;
 inline constexpr uint16_t PWM_MAX = (1U << PWM_RESOLUTION_BITS) - 1U;
 inline constexpr uint32_t ENVELOPE_UPDATE_US = 1000; // 1 ms envelope resolution

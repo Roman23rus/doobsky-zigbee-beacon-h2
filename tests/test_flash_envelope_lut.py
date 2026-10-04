@@ -16,7 +16,7 @@ class FlashEnvelopeLutTests(unittest.TestCase):
             "SHORT_DARK_US": 3_064_286,
             "LONG_DARK_US": 9_310_715,
             "ENVELOPE_UPDATE_US": 1_000,
-            "PWM_FREQUENCY_HZ": 20_000,
+            "PWM_FREQUENCY_HZ": 1_000,
         }
         for name, value in expected.items():
             match = re.search(rf"\b{name}\s*=\s*([0-9'_,]+)", CFG)

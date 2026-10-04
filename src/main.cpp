@@ -86,6 +86,14 @@ void applyRequestedState(uint32_t nowMs) {
   requestPending = false;
   portEXIT_CRITICAL(&stateMux);
 
+  // Never let an OFF command carrying CurrentLevel=0 erase the
+  // remembered brightness. OFF is represented by activeOn, not level 0.
+  if (!newOn && newLevel == 0) {
+    newLevel = (activeLevel == 0 || activeLevel > ZIGBEE_MAX_LEVEL)
+        ? DEFAULT_LEVEL
+        : activeLevel;
+  }
+
   const bool stateChanged = (newOn != activeOn) || (newLevel != activeLevel);
   activeOn = newOn;
   activeLevel = newLevel;
@@ -106,8 +114,11 @@ void loadPersistentState() {
     activeOn = false;
   }
 
-  if (activeLevel > ZIGBEE_MAX_LEVEL) {
+  // Level 0 is not a remembered brightness for this device. Older
+  // firmware could persist 0 when a coordinator turned the lamp off.
+  if (activeLevel == 0 || activeLevel > ZIGBEE_MAX_LEVEL) {
     activeLevel = DEFAULT_LEVEL;
+    prefs.putUChar("level", activeLevel);  // one-time migration from bad state
   }
 
   enqueueRequestedState(activeOn, activeLevel);

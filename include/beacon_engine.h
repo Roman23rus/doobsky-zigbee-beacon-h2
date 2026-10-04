@@ -46,5 +46,6 @@ private:
   int64_t nextDeadlineUs_ = 0;
   uint16_t lastPwmDuty_ = 0;
   uint8_t lastRgbLevel_ = 0xFF;
+  bool lastRgbEnabled_ = false;
   int64_t lastRgbUpdateUs_ = 0;
 };

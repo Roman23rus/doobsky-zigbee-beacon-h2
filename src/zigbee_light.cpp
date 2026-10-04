@@ -79,6 +79,14 @@ void ZigbeeLight::handleLightChange(bool state, uint8_t level) {
   level = normalizeLevel(level);
   StateChangedCallback callback;
   portENTER_CRITICAL(&mux_);
+
+  // Some coordinators drive CurrentLevel to 0 when sending OFF. Treat that
+  // as an OFF transport detail, not as the user's remembered brightness.
+  // This keeps the last non-zero level available across OFF and power loss.
+  if (!state && level == 0) {
+    level = (level_ == 0 || level_ > ZIGBEE_MAX_LEVEL) ? DEFAULT_LEVEL : level_;
+  }
+
   on_ = state;
   level_ = level;
   callback = stateChangedCallback_;

@@ -9,6 +9,7 @@ using namespace BeaconConfig;
 bool BeaconEngine::begin() {
   rgbLedWrite(RGB_LED_PIN, 0, 0, 0);
   lastRgbLevel_ = 0;
+  lastRgbEnabled_ = false;
   lastRgbUpdateUs_ = esp_timer_get_time();
 
   if (!ledcAttach(MOSFET_PWM_PIN, PWM_FREQUENCY_HZ, PWM_RESOLUTION_BITS)) {
@@ -235,24 +236,45 @@ void BeaconEngine::stopDeadline() {
 }
 
 void BeaconEngine::writePwm(uint16_t duty, int64_t nowUs) {
-  if (duty == lastPwmDuty_) return;
-  ledcWrite(MOSFET_PWM_PIN, duty);
-  portENTER_CRITICAL(&mux_);
-  lastPwmDuty_ = duty;
-  portEXIT_CRITICAL(&mux_);
+  if (duty != lastPwmDuty_) {
+    ledcWrite(MOSFET_PWM_PIN, duty);
+    portENTER_CRITICAL(&mux_);
+    lastPwmDuty_ = duty;
+    portEXIT_CRITICAL(&mux_);
+  }
+
   const uint8_t rgb = static_cast<uint8_t>(
       (static_cast<uint32_t>(duty) * 255U + PWM_MAX / 2U) / PWM_MAX);
   writeRgb(rgb, nowUs);
 }
 
 void BeaconEngine::writeRgb(uint8_t level, int64_t nowUs) {
-  if (level == lastRgbLevel_) return;
-  if (level != 0 && lastRgbUpdateUs_ != 0 &&
+  bool enabled;
+  portENTER_CRITICAL(&mux_);
+  enabled = activeOn_;
+  portEXIT_CRITICAL(&mux_);
+
+  if (level == lastRgbLevel_ && enabled == lastRgbEnabled_) return;
+
+  if (!enabled) {
+    rgbLedWrite(RGB_LED_PIN, 0, 0, 0);
+    lastRgbLevel_ = level;
+    lastRgbEnabled_ = false;
+    lastRgbUpdateUs_ = nowUs;
+    return;
+  }
+
+  if (level != 0 && lastRgbEnabled_ && lastRgbUpdateUs_ != 0 &&
       (nowUs - lastRgbUpdateUs_) < RGB_UPDATE_US) {
     return;
   }
-  rgbLedWrite(RGB_LED_PIN, level, level, level);
+
+  // When the beacon is enabled, keep red at 30% between flashes and
+  // smoothly blend toward white using the same envelope as the beacon.
+  const uint8_t red = level > RGB_STATUS_RED_LEVEL ? level : RGB_STATUS_RED_LEVEL;
+  rgbLedWrite(RGB_LED_PIN, red, level, level);
   lastRgbLevel_ = level;
+  lastRgbEnabled_ = true;
   lastRgbUpdateUs_ = nowUs;
 }
 
