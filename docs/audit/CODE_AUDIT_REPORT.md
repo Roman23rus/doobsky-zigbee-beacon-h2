@@ -317,3 +317,62 @@ README, SECURITY и CONTRIBUTING присутствуют, но лицензия
 
 До аппаратного теста ветку **не объединять в main**. После HIL-проверки A1-A3 желательно исправить или явно принять как документированную политику телеметрии. Остальные пункты не блокируют функциональный тест прошивки, но должны быть учтены перед стабильным release.
 
+## Исправления по повторному аудиту — 2026-10-05
+
+Замечания A0–A3 исправлены в audit-ветке и повторно проверены CI.
+
+### A0 — deferred CurrentLevel race: исправлено
+
+Коррекция `CurrentLevel=0` теперь использует generation/in-flight tracking:
+
+- каждая внешняя/локальная логическая команда получает новое поколение;
+- self-generated callback от `setLightLevel()` распознаётся по task handle и не меняет application shadow;
+- если во время старой correction приходит более новая команда, после завершения старой операции автоматически ставится correction к последнему логическому уровню;
+- действует принцип **latest command wins**.
+
+Это закрывает редкое race-окно burst-команд без вызова Zigbee stack API из Zigbee callback.
+
+### A1 — ошибки обновления battery/DC attributes: исправлено
+
+Добавлен отдельный `batteryAttributeSyncPending_` и retry state. После нового ADC sample:
+
+- Power Configuration attributes и DCVoltage синхронизируются с локальным Zigbee endpoint;
+- результаты обеих операций проверяются;
+- при ошибке dirty/sync state сохраняется;
+- reports не отправляются, пока локальные атрибуты не синхронизированы;
+- retry выполняется с существующим `BATTERY_REPORT_RETRY_MS`, без tight loop.
+
+### A2 — BatteryVoltage report: исправлено
+
+Добавлен явный стандартный report Power Configuration / `BatteryVoltage` через `reportClusterAttribute()`.
+
+Теперь report cycle включает:
+
+1. `BatteryPercentageRemaining`;
+2. `BatteryVoltage`;
+3. Electrical Measurement / `DCVoltage`.
+
+Цикл считается успешным только если успешно отправлены все три стандартных reports.
+
+### A3 — дублирующий DCVoltage reporting: исправлено
+
+`setDCReporting()` удалён. Для батарейной телеметрии используется одна предсказуемая политика — ручной report по change/periodic policy. Это исключает потенциальное дублирование automatic + manual DC reports.
+
+### Повторная валидация
+
+GitHub Actions run #94:
+
+- **61/61 tests PASS**;
+- ESP32-H2 production build: **SUCCESS**;
+- RAM: **32 768 / 327 680 байт (10,0%)**;
+- Flash: **669 847 / 1 310 720 байт (51,1%)**;
+- предупреждений компилятора из кода проекта нет.
+
+По сравнению с исходным `main @ 53eca551` на одинаковом toolchain:
+
+- RAM: **+16 байт**;
+- Flash: **+202 байта**;
+- regression tests: **46 → 61**.
+
+Остаётся обязательный аппаратный HIL/runtime тест перед merge: Zigbee join/rejoin, burst ON/OFF/brightness, power-cycle persistence, 64 МГц, RGB/PWM smoothness и timing/jitter.
+
