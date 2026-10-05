@@ -21,6 +21,7 @@ public:
 
   bool configureEndpoint();
   bool startRuntime();
+  bool needsService(uint32_t nowMs) const;
   void service(uint32_t nowMs, bool backgroundAllowed);
   ZigbeeEP *endpoint();
 
@@ -43,6 +44,7 @@ private:
   uint8_t batteryVoltageZclRaw() const;
   int16_t batteryDcVoltageZclRaw() const;
   bool serviceSample(uint32_t nowMs);
+  bool syncAttributes(uint32_t nowMs, bool force);
   void beginSample();
 
   BatteryTelemetryEndpoint endpoint_;
@@ -56,9 +58,11 @@ private:
   uint32_t lastBatterySampleMs_ = 0;
   uint32_t lastBatteryReportMs_ = 0;
   uint32_t lastBatteryReportAttemptMs_ = 0;
+  uint32_t lastBatteryAttributeAttemptMs_ = 0;
   bool batteryReportInitialized_ = false;
   bool lastReportedBatteryValid_ = false;
   bool batteryTelemetryDirty_ = true;
+  bool batteryAttributeSyncPending_ = true;
   bool runtimeStarted_ = false;
 };
 

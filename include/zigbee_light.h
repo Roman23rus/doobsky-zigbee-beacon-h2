@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 #include <Zigbee.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 namespace Doobsky {
 
@@ -16,6 +18,7 @@ public:
 
   bool begin(bool initialOn, uint8_t initialLevel);
   bool setLocalState(bool on, uint8_t level);
+  void service();
   bool on() const;
   uint8_t level() const;
 
@@ -34,7 +37,17 @@ private:
   mutable portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
   bool on_ = false;
   uint8_t level_ = 0;
-  bool identifyActive_ = false;
+
+  // A coordinator can write CurrentLevel=0 before the Arduino callback runs.
+  // The correction is deferred out of the Zigbee callback to avoid stack-lock
+  // re-entry. Generation/in-flight tracking makes "latest command wins" even
+  // if a new Zigbee command arrives while an older correction is executing.
+  bool levelCorrectionPending_ = false;
+  uint8_t levelCorrection_ = 0;
+  uint32_t levelCorrectionGeneration_ = 0;
+  TaskHandle_t levelCorrectionTask_ = nullptr;
+  uint32_t levelCorrectionInFlightGeneration_ = 0;
+
   StateChangedCallback stateChangedCallback_ = nullptr;
   IdentifyChangedCallback identifyChangedCallback_ = nullptr;
 };

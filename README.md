@@ -57,8 +57,8 @@
 ### Требования
 
 - ESP32-H2 SuperMini;
-- PlatformIO;
-- pioarduino / Arduino-ESP32 3.3.x;
+- PlatformIO **6.2.0**;
+- pioarduino **55.03.312** / Arduino-ESP32 **3.3.12**;
 - Zigbee-координатор;
 - 12-вольтовый LED-модуль;
 - силовой ключ AO3400A;
@@ -173,7 +173,21 @@ pio device monitor -b 115200
 - `0xFF` для батарейных полей;
 - `0x8000` для DCVoltage.
 
-Процент заряда принудительно публикуется при изменении минимум на 2% либо раз в 5 минут. ADC, запись NVS и фоновая Zigbee-телеметрия откладываются, если идёт вспышка или до неё остаётся менее 50 мс.
+Телеметрия публикуется при изменении минимум на 2% или 20 мВ либо раз в 5 минут. `BatteryPercentageRemaining` репортится через Power Configuration, а точное напряжение — через стандартный Electrical Measurement `DCVoltage`. Поле Power Configuration `BatteryVoltage` обновляется и доступно для чтения, но по Zigbee/Arduino-ESP32 не является reportable attribute. Для `DCVoltage` используется одна ручная reporting-политика без параллельного automatic reporting. Локальные Zigbee-атрибуты сначала должны успешно синхронизироваться, а transient failure приводит к отложенной повторной попытке. ADC, запись NVS и фоновая Zigbee-телеметрия откладываются, если идёт вспышка или до неё остаётся менее 50 мс.
+
+## Профиль энергопотребления
+
+Текущий профиль оптимизирован без перехода в sleepy Zigbee:
+
+- CPU ESP32-H2: **64 МГц**;
+- основной housekeeping loop: **20 мс**;
+- status/button polling: **20 мс**;
+- RGB update throttle: **10 мс**;
+- Zigbee: `RxOnWhenIdle=true` для сохранения быстрой реакции на команды;
+- батарейная телеметрия обслуживается только когда действительно требуется ADC sample или report;
+- NVS записывает On/Off и brightness раздельно и объединяет быстрые последовательности команд.
+
+Снижение CPU 96 → 64 МГц уменьшает частоту на 33,3%, но это не означает такое же снижение полного тока устройства: значительная часть потребления зависит от Zigbee RX, RGB, преобразователей и внешнего LED. Реальный выигрыш оценивается только измерением на готовом устройстве.
 
 ## Характеристика огня
 
@@ -200,7 +214,7 @@ pio device monitor -b 115200
 Проект использует PlatformIO с pioarduino:
 
 ```ini
-platform = https://github.com/pioarduino/platform-espressif32/releases/download/stable/platform-espressif32.zip
+platform = https://github.com/pioarduino/platform-espressif32/releases/download/55.03.312/platform-espressif32.zip
 board = esp32-h2-devkitm-1
 framework = arduino
 ```
@@ -256,7 +270,7 @@ GitHub Actions автоматически:
 2. запускает регрессионный набор тестов;
 3. собирает реальную прошивку для ESP32-H2 через PlatformIO.
 
-Workflow выполняется для pull request и push в `main` / `feature/**`.
+Workflow выполняется для pull request и push в `main`, `feature/**` и `audit/**`.
 
 Локально:
 

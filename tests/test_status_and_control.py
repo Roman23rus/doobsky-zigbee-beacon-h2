@@ -5,6 +5,8 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MAIN = (ROOT / "src" / "main.cpp").read_text(encoding="utf-8-sig")
 BEACON = (ROOT / "src" / "beacon_engine.cpp").read_text(encoding="utf-8-sig")
+ZIGBEE = (ROOT / "src" / "zigbee_light.cpp").read_text(encoding="utf-8-sig")
+ZIGBEE_H = (ROOT / "include" / "zigbee_light.h").read_text(encoding="utf-8-sig")
 
 
 def function_text(source: str, name: str) -> str:
@@ -31,7 +33,7 @@ class StatusAndControlTests(unittest.TestCase):
 
     def test_identify_overrides_connected_off_state(self):
         body = function_text(MAIN, "updateIndicators")
-        identify = body.find("if (identifyActive)")
+        identify = body.find("if (identify)")
         connected = body.find("Zigbee.connected()")
         self.assertGreaterEqual(identify, 0)
         self.assertGreater(connected, identify)
@@ -66,10 +68,29 @@ class StatusAndControlTests(unittest.TestCase):
         self.assertIn("!newOn && newLevel == 0", main_body)
         self.assertIn("activeLevel", main_body)
 
-        zigbee = (ROOT / "src" / "zigbee_light.cpp").read_text(encoding="utf-8-sig")
-        handler = function_text(zigbee, "ZigbeeLight::handleLightChange")
-        self.assertIn("!state && level == 0", handler)
+        handler = function_text(ZIGBEE, "ZigbeeLight::handleLightChange")
+        self.assertIn("level == 0", handler)
         self.assertIn("level_", handler)
+        self.assertIn("levelCorrectionPending_", handler)
+
+        service = function_text(ZIGBEE, "ZigbeeLight::service")
+        self.assertIn("setLightLevel(level)", service)
+
+    def test_deferred_level_correction_is_latest_command_wins(self):
+        service = function_text(ZIGBEE, "ZigbeeLight::service")
+        handler = function_text(ZIGBEE, "ZigbeeLight::handleLightChange")
+
+        self.assertIn("levelCorrectionGeneration_", ZIGBEE_H)
+        self.assertIn("levelCorrectionTask_", ZIGBEE_H)
+        self.assertIn("generation = levelCorrectionGeneration_", service)
+        self.assertIn("xTaskGetCurrentTaskHandle()", service)
+        self.assertIn("levelCorrectionGeneration_ != generation", service)
+        self.assertIn("levelCorrection_ = level_", service)
+        self.assertIn("levelCorrectionPending_ = true", service)
+
+        self.assertIn("currentTask == levelCorrectionTask_", handler)
+        self.assertIn("++levelCorrectionGeneration_", handler)
+        self.assertNotIn("getLightLevel()", service)
 
     def test_latest_beacon_request_is_authoritative(self):
         body = function_text(BEACON, "BeaconEngine::request")
@@ -77,6 +98,12 @@ class StatusAndControlTests(unittest.TestCase):
         self.assertIn("requestedLevel_ = level", body)
         self.assertIn("requestDirty_ = true", body)
         self.assertEqual(body.count("xTaskNotifyGive"), 1)
+
+    def test_factory_reset_checks_app_nvs_clear(self):
+        body = function_text(MAIN, "performFactoryReset")
+        self.assertIn("bool cleared = prefs.clear()", body)
+        self.assertIn("if (!cleared)", body)
+        self.assertIn("prefs.end()", body)
 
     def test_housekeeping_does_not_poll_at_one_millisecond(self):
         body = function_text(MAIN, "loop")

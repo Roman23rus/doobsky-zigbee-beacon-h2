@@ -6,8 +6,40 @@
 
 ## [Unreleased]
 
+### Добавлено
+
+- Регрессионные проверки конкурентного доступа, power policy и воспроизводимости сборки.
+- Итоговый журнал и отчёт полного аудита в `docs/audit/`.
+
+### Изменено
+
+- Целевая частота CPU ESP32-H2 снижена с 96 до **64 МГц** без перехода Zigbee в sleepy mode.
+- Housekeeping/status/button polling снижены со 100 до **50 Гц**.
+- Максимальная частота обновления RGB снижена с 200 до **100 Гц**.
+- Батарейное масштабирование переведено с float на fixed-point.
+- Батарейный сервис запускается только когда действительно требуется sample/report.
+- NVS хранит On/Off и brightness с раздельными dirty-флагами; задержка coalescing снижена с 1500 до 750 мс.
+- pioarduino зафиксирован на **55.03.312**, CI PlatformIO — на **6.2.0** для воспроизводимых сборок.
+
+### Исправлено
+
+- Deferred correction `CurrentLevel=0` теперь использует generation/in-flight tracking: при burst-командах действует принцип latest-command-wins.
+- Battery/DC attributes проверяются после обновления; при transient failure синхронизация повторяется до report.
+- Добавлен явный стандартный report Power Configuration / `BatteryVoltage`.
+- Удалён дублирующий automatic DCVoltage reporting; battery telemetry использует единую manual change/periodic policy.
+- Устранены data race в pending state и Identify между Zigbee callback и main loop.
+- Deferred Zigbee CurrentLevel correction защищена generation/in-flight tracking: старая коррекция не может остаться авторитетной после более новой команды.
+- Ошибки обновления локальных battery/DC Zigbee-атрибутов больше не приводят к report устаревшего значения; добавлен retry до успешной синхронизации.
+- Убран дублирующий automatic DCVoltage reporting — используется одна управляемая manual reporting-политика.
+- Power Configuration `BatteryVoltage` оставлен стандартным читаемым, но нерепортируемым атрибутом; точное напряжение репортится как Electrical Measurement `DCVoltage`.
+- Factory reset проверяет результат очистки app-NVS и повторяет неудачную очистку один раз.
+- Ошибки записи NVS больше не вызывают частый retry loop.
+- Battery runtime продолжает работать после transient failure начальной настройки Zigbee-атрибутов.
+- Убраны лишние пробуждения, блокировки и повторные операции one-shot timer в BeaconEngine.
+
 ### Планируется
 
+- Аппаратная проверка audit-прошивки на 64 МГц.
 - Финальная проверка TPS61088 в автономной схеме.
 - Проверка полной работы от аккумулятора 21700.
 - Подтверждение точных длительностей элементов характеристики Doobsky по первичному источнику.

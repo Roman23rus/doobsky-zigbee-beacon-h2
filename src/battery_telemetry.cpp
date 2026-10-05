@@ -98,18 +98,12 @@ bool BatteryTelemetry::configureEndpoint() {
 }
 
 bool BatteryTelemetry::startRuntime() {
-  if (!endpoint_.setBatteryTelemetryRaw(
-          batteryPercentageZclRaw(), batteryVoltageZclRaw())) {
-    return false;
-  }
-  if (!endpoint_.setDCMeasurement(
-          ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE,
-          batteryDcVoltageZclRaw())) {
-    return false;
-  }
+  // Runtime sampling should continue even if one initial Zigbee attribute
+  // operation fails transiently. Attribute synchronization is retried later
+  // and reports are never sent until the local attributes are current.
   runtimeStarted_ = true;
-  return endpoint_.setDCReporting(
-      ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE, 0, 300, 20);
+  batteryAttributeSyncPending_ = true;
+  return syncAttributes(millis(), true);
 }
 
 ZigbeeEP *BatteryTelemetry::endpoint() {
@@ -144,10 +138,20 @@ uint8_t BatteryTelemetry::batteryPercentFromMv(uint16_t mv) {
 
 uint16_t BatteryTelemetry::batteryMvFromAdcSum(
     uint32_t sumMv, uint8_t samples) {
-  const float adcMv = static_cast<float>(sumMv) / samples;
-  const float scaledMv =
-      adcMv * BATTERY_DIVIDER_RATIO * BATTERY_CALIBRATION;
-  return static_cast<uint16_t>(scaledMv + 0.5f);
+  if (samples == 0) return 0;
+
+  // Fixed-point arithmetic avoids pulling floating-point work into the
+  // low-frequency battery path on the RISC-V ESP32-H2.
+  const uint64_t numerator =
+      static_cast<uint64_t>(sumMv) *
+      BATTERY_DIVIDER_NUMERATOR *
+      BATTERY_CALIBRATION_PERMILLE;
+  const uint64_t denominator =
+      static_cast<uint64_t>(samples) *
+      BATTERY_DIVIDER_DENOMINATOR *
+      1000ULL;
+  return static_cast<uint16_t>(
+      (numerator + denominator / 2ULL) / denominator);
 }
 
 uint8_t BatteryTelemetry::zigbeeBatteryVoltage(uint16_t mv) {
@@ -192,7 +196,46 @@ bool BatteryTelemetry::serviceSample(uint32_t nowMs) {
   batteryPercent_ = batteryValid_ ? batteryPercentFromMv(batteryMv_) : 0;
   lastBatterySampleMs_ = nowMs;
   batteryTelemetryDirty_ = true;
+  batteryAttributeSyncPending_ = true;
   return true;
+}
+
+bool BatteryTelemetry::syncAttributes(uint32_t nowMs, bool force) {
+  if (!batteryAttributeSyncPending_) return true;
+  if (!force &&
+      (nowMs - lastBatteryAttributeAttemptMs_) < BATTERY_REPORT_RETRY_MS) {
+    return false;
+  }
+
+  lastBatteryAttributeAttemptMs_ = nowMs;
+  const bool batteryAttrsOk = endpoint_.setBatteryTelemetryRaw(
+      batteryPercentageZclRaw(), batteryVoltageZclRaw());
+  const bool dcAttrOk = endpoint_.setDCMeasurement(
+      ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE,
+      batteryDcVoltageZclRaw());
+
+  batteryAttributeSyncPending_ = !(batteryAttrsOk && dcAttrOk);
+  return !batteryAttributeSyncPending_;
+}
+
+bool BatteryTelemetry::needsService(uint32_t nowMs) const {
+  if (!runtimeStarted_) return false;
+  if (sampler_.active) return true;
+
+  if ((nowMs - lastBatterySampleMs_) >= BATTERY_SAMPLE_INTERVAL_MS) {
+    return true;
+  }
+
+  if (batteryAttributeSyncPending_) {
+    return (nowMs - lastBatteryAttributeAttemptMs_) >=
+           BATTERY_REPORT_RETRY_MS;
+  }
+
+  const bool periodic =
+      (nowMs - lastBatteryReportMs_) >= BATTERY_REPORT_INTERVAL_MS;
+  if (!batteryTelemetryDirty_ && !periodic) return false;
+
+  return (nowMs - lastBatteryReportAttemptMs_) >= BATTERY_REPORT_RETRY_MS;
 }
 
 void BatteryTelemetry::service(uint32_t nowMs, bool backgroundAllowed) {
@@ -203,12 +246,11 @@ void BatteryTelemetry::service(uint32_t nowMs, bool backgroundAllowed) {
     beginSample();
   }
 
-  if (serviceSample(nowMs)) {
-    endpoint_.setBatteryTelemetryRaw(
-        batteryPercentageZclRaw(), batteryVoltageZclRaw());
-    endpoint_.setDCMeasurement(
-        ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE,
-        batteryDcVoltageZclRaw());
+  const bool sampleCompleted = serviceSample(nowMs);
+  if (sampleCompleted) {
+    if (!syncAttributes(nowMs, true)) return;
+  } else if (batteryAttributeSyncPending_) {
+    if (!syncAttributes(nowMs, false)) return;
   }
 
   const bool periodic =
@@ -237,10 +279,13 @@ void BatteryTelemetry::service(uint32_t nowMs, bool backgroundAllowed) {
     return;
   }
 
+  // Power Configuration BatteryVoltage is readable but is not a reportable
+  // attribute in Arduino-ESP32/ZCL. Report percentage from Power
+  // Configuration and precise voltage through Electrical Measurement DCVoltage.
   const bool pctOk = endpoint_.reportBatteryPercentage();
-  const bool voltOk =
+  const bool dcVoltOk =
       endpoint_.reportDC(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE);
-  if (!(pctOk && voltOk)) return;
+  if (!(pctOk && dcVoltOk)) return;
 
   lastReportedBatteryPercent_ = batteryPercent_;
   lastReportedBatteryMv_ = batteryMv_;
