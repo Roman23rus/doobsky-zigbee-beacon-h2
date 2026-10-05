@@ -42,31 +42,55 @@ bool ZigbeeLight::setLocalState(bool on, uint8_t level) {
 void ZigbeeLight::service() {
   bool pending = false;
   uint8_t level = 0;
+  uint32_t generation = 0;
 
   portENTER_CRITICAL(&mux_);
   if (levelCorrectionPending_) {
     pending = true;
     level = levelCorrection_;
-    levelCorrectionPending_ = false;
+    generation = levelCorrectionGeneration_;
   }
   portEXIT_CRITICAL(&mux_);
 
   if (!pending) return;
 
-  // ZigbeeDimmableLight updates its private CurrentLevel before invoking our
-  // callback. Correct a coordinator-supplied zero from normal task context;
-  // calling setClusterAttribute from inside the Zigbee callback could try to
-  // reacquire the Zigbee stack lock and deadlock.
-  if (endpoint_.getLightLevel() != 0) return;
-
-  if (!endpoint_.setLightLevel(level)) {
-    portENTER_CRITICAL(&mux_);
-    if (!levelCorrectionPending_) {
-      levelCorrection_ = level;
-      levelCorrectionPending_ = true;
-    }
+  // Mark this task as the owner of the deferred correction. setLightLevel()
+  // invokes the Arduino light callback synchronously before updating ZCL
+  // attributes; handleLightChange() ignores only that self-generated callback.
+  const TaskHandle_t currentTask = xTaskGetCurrentTaskHandle();
+  portENTER_CRITICAL(&mux_);
+  if (!levelCorrectionPending_ ||
+      levelCorrectionGeneration_ != generation) {
     portEXIT_CRITICAL(&mux_);
+    return;
   }
+  levelCorrectionTask_ = currentTask;
+  levelCorrectionInFlightGeneration_ = generation;
+  portEXIT_CRITICAL(&mux_);
+
+  const bool ok = endpoint_.setLightLevel(level);
+
+  portENTER_CRITICAL(&mux_);
+  if (levelCorrectionTask_ == currentTask &&
+      levelCorrectionInFlightGeneration_ == generation) {
+    levelCorrectionTask_ = nullptr;
+    levelCorrectionInFlightGeneration_ = 0;
+  }
+
+  if (levelCorrectionGeneration_ != generation) {
+    // A newer external/local command arrived while the old correction was in
+    // flight. The old setLightLevel() may have touched the endpoint after that
+    // command, so explicitly queue the newest logical level for convergence.
+    levelCorrection_ = level_;
+    levelCorrectionPending_ = true;
+  } else if (ok) {
+    levelCorrectionPending_ = false;
+  } else {
+    // Keep the same generation pending and retry from normal task context.
+    levelCorrection_ = level;
+    levelCorrectionPending_ = true;
+  }
+  portEXIT_CRITICAL(&mux_);
 }
 
 bool ZigbeeLight::on() const {
@@ -107,8 +131,22 @@ void ZigbeeLight::identifyThunk(uint16_t timeSeconds) {
 
 void ZigbeeLight::handleLightChange(bool state, uint8_t level) {
   level = normalizeLevel(level);
-  StateChangedCallback callback;
+  StateChangedCallback callback = nullptr;
+  const TaskHandle_t currentTask = xTaskGetCurrentTaskHandle();
+
   portENTER_CRITICAL(&mux_);
+
+  // setLightLevel() calls lightChanged() synchronously from the caller task.
+  // Ignore that self-generated callback: application shadow state already
+  // contains the intended remembered level, and processing it as an external
+  // command could erase a newer correction queued by the Zigbee task.
+  if (levelCorrectionTask_ != nullptr &&
+      currentTask == levelCorrectionTask_) {
+    portEXIT_CRITICAL(&mux_);
+    return;
+  }
+
+  ++levelCorrectionGeneration_;
 
   // Some coordinators drive CurrentLevel to 0 with OFF. The Arduino Zigbee
   // endpoint stores that zero before invoking this callback, so remember the
@@ -120,6 +158,7 @@ void ZigbeeLight::handleLightChange(bool state, uint8_t level) {
     levelCorrection_ = level;
     levelCorrectionPending_ = true;
   } else {
+    // A real non-zero command supersedes any older zero-level correction.
     levelCorrectionPending_ = false;
   }
 
@@ -127,6 +166,7 @@ void ZigbeeLight::handleLightChange(bool state, uint8_t level) {
   level_ = level;
   callback = stateChangedCallback_;
   portEXIT_CRITICAL(&mux_);
+
   if (callback != nullptr) callback(state, level);
 }
 
