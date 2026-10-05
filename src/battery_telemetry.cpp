@@ -75,7 +75,8 @@ bool BatteryTelemetryEndpoint::reportBatteryVoltage() {
   report.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
   report.clusterID = ESP_ZB_ZCL_CLUSTER_ID_POWER_CONFIG;
   report.zcl_basic_cmd.src_endpoint = _endpoint;
-  report.manuf_specific = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
+  report.manuf_specific = 0x00U;
+  report.dis_default_resp = 0x00U;
   return reportClusterAttribute(&report);
 }
 
