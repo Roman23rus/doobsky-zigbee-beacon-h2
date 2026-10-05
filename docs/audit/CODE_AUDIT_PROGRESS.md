@@ -355,3 +355,23 @@ GitHub Actions run #60 после фиксации toolchain завершён у
 Раздел `Unreleased` обновлён под фактический результат аудита: синхронизация, CurrentLevel correction, NVS, battery scheduling, CPU 64 МГц, reduced housekeeping/RGB rate и pinned toolchain.
 
 Коммит: `e9059e84` — `docs: record audit changes in changelog`.
+
+### Контрольная точка — частичный HIL на ESP32-H2, 2026-10-05
+
+Статус: аппаратная прошивка и базовый runtime test завершены; интерактивные Zigbee/visual проверки ещё открыты.
+
+- свежий audit code commit `37d92c9` собран локально;
+- **62/62 tests PASS**;
+- PlatformIO build **SUCCESS**;
+- RAM **32 768 байт**, Flash **669 805 байт**;
+- прошивка успешно загружена на реальный ESP32-H2 через **COM5**;
+- esptool подтвердил запись bootloader/partitions/firmware и SHA;
+- после reset Serial banner: CPU **64 MHz**, PWM **1000 Hz / 10-bit**;
+- Zigbee stack стартовал штатно;
+- 30 секунд пассивного serial monitoring — без reboot/panic/error;
+- документация и PR исправлены после окончательной сверки: `BatteryVoltage` в Arduino-ESP32 3.3.12 non-reportable, поэтому активный voltage report выполняется через стандартный Electrical Measurement / `DCVoltage`.
+
+Открытые HIL-пункты: join/rejoin, ON/OFF/brightness, burst-команды, power-cycle persistence, визуальная плавность RGB/PWM, полный timing/jitter цикл и измерение тока при необходимости.
+
+PR #2 остаётся Draft; `main` не изменять до закрытия этих пунктов.
+
