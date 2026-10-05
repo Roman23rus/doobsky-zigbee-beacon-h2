@@ -94,6 +94,20 @@ class PowerAndConcurrencyTests(unittest.TestCase):
         self.assertIn("if (battery.needsService(nowMs))", loop)
         self.assertIn("battery.service(nowMs, backgroundWorkAllowed())", loop)
 
+
+    def test_battery_attributes_retry_before_reports(self):
+        battery_h = (ROOT / "include" / "battery_telemetry.h").read_text(encoding="utf-8-sig")
+        sync = function_text(BATTERY, "BatteryTelemetry::syncAttributes")
+        service = function_text(BATTERY, "BatteryTelemetry::service")
+
+        self.assertIn("batteryAttributeSyncPending_", battery_h)
+        self.assertIn("lastBatteryAttributeAttemptMs_", battery_h)
+        self.assertIn("batteryAttrsOk", sync)
+        self.assertIn("dcAttrOk", sync)
+        self.assertIn("batteryAttributeSyncPending_ = !(batteryAttrsOk && dcAttrOk)", sync)
+        self.assertIn("if (!syncAttributes(nowMs, true)) return", service)
+        self.assertIn("if (!syncAttributes(nowMs, false)) return", service)
+
     def test_battery_scaling_is_fixed_point_and_zero_safe(self):
         body = function_text(BATTERY, "BatteryTelemetry::batteryMvFromAdcSum")
         self.assertIn("if (samples == 0)", body)
