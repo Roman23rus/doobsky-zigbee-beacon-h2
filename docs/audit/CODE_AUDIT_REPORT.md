@@ -206,6 +206,20 @@ ESP32-H2 поддерживает и другие режимы, но 48/32 МГ�
 
 ### Замечания средней важности
 
+#### A0. Редкое race-окно в deferred CurrentLevel correction
+
+В `ZigbeeLight::service()` correction снимается из очереди под `mux_`, после чего `getLightLevel()` и `setLightLevel()` выполняются уже без этого application mutex. Zigbee task Arduino-ESP32 работает с приоритетом 5, а main/service может быть прерван новым Zigbee callback.
+
+Возможный редкий сценарий при быстрой последовательности команд:
+
+1. service забирает старую correction и очищает pending;
+2. Zigbee callback успевает поставить более новую correction;
+3. service применяет старый `setLightLevel()`;
+4. Arduino `setLightLevel()` синхронно вызывает `lightChanged()`;
+5. callback с ненулевым уровнем очищает `levelCorrectionPending_`, из-за чего более новая correction может потеряться.
+
+Это не проявляется в обычном одиночном OFF/ON и не покрывается текущими source-text тестами, но формально оставляет race при burst-командах яркости/Off. Перед merge рекомендуется добавить generation/sequence token для correction или другой механизм, гарантирующий принцип «последняя команда авторитетна», и отдельный runtime/HIL regression test.
+
 #### A1. Результат обновления батарейных атрибутов игнорируется
 
 В `src/battery_telemetry.cpp:234-239` после завершения ADC-серии вызываются:
