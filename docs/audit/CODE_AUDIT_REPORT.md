@@ -328,17 +328,17 @@ README, SECURITY и CONTRIBUTING присутствуют, но лицензия
 - reports не отправляются, пока локальные атрибуты не синхронизированы;
 - retry выполняется с существующим `BATTERY_REPORT_RETRY_MS`, без tight loop.
 
-### A2 — BatteryVoltage report: исправлено
+### A2 — BatteryVoltage reporting: уточнено и исправлено
 
-Добавлен явный стандартный report Power Configuration / `BatteryVoltage` через `reportClusterAttribute()`.
+Повторная сверка с Arduino-ESP32 **3.3.12** показала, что `ZigbeeEP.h` прямо помечает Power Configuration / `BatteryVoltage` как **not reportable attribute**. Поэтому ранее предложенный собственный unsolicited report для него удалён как некорректный для этого API.
 
-Теперь report cycle включает:
+Текущая политика:
 
-1. `BatteryPercentageRemaining`;
-2. `BatteryVoltage`;
-3. Electrical Measurement / `DCVoltage`.
+1. `BatteryPercentageRemaining` — стандартный manual report;
+2. `BatteryVoltage` — поддерживается как читаемый локальный атрибут Power Configuration;
+3. точное напряжение — стандартный manual report Electrical Measurement / `DCVoltage`.
 
-Цикл считается успешным только если успешно отправлены все три стандартных reports.
+Таким образом, координатор может прочитать `BatteryVoltage`, а изменение напряжения активно доставляется через стандартный `DCVoltage`.
 
 ### A3 — дублирующий DCVoltage reporting: исправлено
 
@@ -346,19 +346,19 @@ README, SECURITY и CONTRIBUTING присутствуют, но лицензия
 
 ### Повторная валидация
 
-GitHub Actions run #94:
+GitHub Actions run #102:
 
-- **61/61 tests PASS**;
+- **62/62 tests PASS**;
 - ESP32-H2 production build: **SUCCESS**;
 - RAM: **32 768 / 327 680 байт (10,0%)**;
-- Flash: **669 847 / 1 310 720 байт (51,1%)**;
+- Flash: **669 805 / 1 310 720 байт (51,1%)**;
 - предупреждений компилятора из кода проекта нет.
 
 По сравнению с исходным `main @ 53eca551` на одинаковом toolchain:
 
 - RAM: **+16 байт**;
-- Flash: **+202 байта**;
-- regression tests: **46 → 61**.
+- Flash: **+160 байт**;
+- regression tests: **46 → 62**.
 
 Остаётся обязательный аппаратный HIL/runtime тест перед merge: Zigbee join/rejoin, burst ON/OFF/brightness, power-cycle persistence, 64 МГц, RGB/PWM smoothness и timing/jitter.
 
