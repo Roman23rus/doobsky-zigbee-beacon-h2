@@ -68,6 +68,17 @@ bool BatteryTelemetryEndpoint::setBatteryTelemetryRaw(
          v == ESP_ZB_ZCL_STATUS_SUCCESS;
 }
 
+bool BatteryTelemetryEndpoint::reportBatteryVoltage() {
+  esp_zb_zcl_report_attr_cmd_t report{};
+  report.address_mode = ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT;
+  report.attributeID = ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID;
+  report.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
+  report.clusterID = ESP_ZB_ZCL_CLUSTER_ID_POWER_CONFIG;
+  report.zcl_basic_cmd.src_endpoint = _endpoint;
+  report.manuf_specific = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
+  return reportClusterAttribute(&report);
+}
+
 BatteryTelemetry::BatteryTelemetry()
     : endpoint_(BATTERY_SENSOR_ENDPOINT) {}
 
@@ -99,20 +110,11 @@ bool BatteryTelemetry::configureEndpoint() {
 
 bool BatteryTelemetry::startRuntime() {
   // Runtime sampling should continue even if one initial Zigbee attribute
-  // operation fails transiently. A completed ADC sample writes the attributes
-  // again, while the return value still tells setup that initialization was
-  // not fully successful.
+  // operation fails transiently. Attribute synchronization is retried later
+  // and reports are never sent until the local attributes are current.
   runtimeStarted_ = true;
-
-  const bool batteryAttrsOk = endpoint_.setBatteryTelemetryRaw(
-      batteryPercentageZclRaw(), batteryVoltageZclRaw());
-  const bool dcAttrOk = endpoint_.setDCMeasurement(
-      ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE,
-      batteryDcVoltageZclRaw());
-  const bool reportingOk = endpoint_.setDCReporting(
-      ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE, 0, 300, 20);
-
-  return batteryAttrsOk && dcAttrOk && reportingOk;
+  batteryAttributeSyncPending_ = true;
+  return syncAttributes(millis(), true);
 }
 
 ZigbeeEP *BatteryTelemetry::endpoint() {
@@ -205,7 +207,26 @@ bool BatteryTelemetry::serviceSample(uint32_t nowMs) {
   batteryPercent_ = batteryValid_ ? batteryPercentFromMv(batteryMv_) : 0;
   lastBatterySampleMs_ = nowMs;
   batteryTelemetryDirty_ = true;
+  batteryAttributeSyncPending_ = true;
   return true;
+}
+
+bool BatteryTelemetry::syncAttributes(uint32_t nowMs, bool force) {
+  if (!batteryAttributeSyncPending_) return true;
+  if (!force &&
+      (nowMs - lastBatteryAttributeAttemptMs_) < BATTERY_REPORT_RETRY_MS) {
+    return false;
+  }
+
+  lastBatteryAttributeAttemptMs_ = nowMs;
+  const bool batteryAttrsOk = endpoint_.setBatteryTelemetryRaw(
+      batteryPercentageZclRaw(), batteryVoltageZclRaw());
+  const bool dcAttrOk = endpoint_.setDCMeasurement(
+      ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE,
+      batteryDcVoltageZclRaw());
+
+  batteryAttributeSyncPending_ = !(batteryAttrsOk && dcAttrOk);
+  return !batteryAttributeSyncPending_;
 }
 
 bool BatteryTelemetry::needsService(uint32_t nowMs) const {
@@ -214,6 +235,11 @@ bool BatteryTelemetry::needsService(uint32_t nowMs) const {
 
   if ((nowMs - lastBatterySampleMs_) >= BATTERY_SAMPLE_INTERVAL_MS) {
     return true;
+  }
+
+  if (batteryAttributeSyncPending_) {
+    return (nowMs - lastBatteryAttributeAttemptMs_) >=
+           BATTERY_REPORT_RETRY_MS;
   }
 
   const bool periodic =
@@ -231,12 +257,11 @@ void BatteryTelemetry::service(uint32_t nowMs, bool backgroundAllowed) {
     beginSample();
   }
 
-  if (serviceSample(nowMs)) {
-    endpoint_.setBatteryTelemetryRaw(
-        batteryPercentageZclRaw(), batteryVoltageZclRaw());
-    endpoint_.setDCMeasurement(
-        ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE,
-        batteryDcVoltageZclRaw());
+  const bool sampleCompleted = serviceSample(nowMs);
+  if (sampleCompleted) {
+    if (!syncAttributes(nowMs, true)) return;
+  } else if (batteryAttributeSyncPending_) {
+    if (!syncAttributes(nowMs, false)) return;
   }
 
   const bool periodic =
@@ -266,9 +291,10 @@ void BatteryTelemetry::service(uint32_t nowMs, bool backgroundAllowed) {
   }
 
   const bool pctOk = endpoint_.reportBatteryPercentage();
-  const bool voltOk =
+  const bool batteryVoltOk = endpoint_.reportBatteryVoltage();
+  const bool dcVoltOk =
       endpoint_.reportDC(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE);
-  if (!(pctOk && voltOk)) return;
+  if (!(pctOk && batteryVoltOk && dcVoltOk)) return;
 
   lastReportedBatteryPercent_ = batteryPercent_;
   lastReportedBatteryMv_ = batteryMv_;
