@@ -173,7 +173,7 @@ pio device monitor -b 115200
 - `0xFF` для батарейных полей;
 - `0x8000` для DCVoltage.
 
-Телеметрия публикует стандартные `BatteryPercentageRemaining`, `BatteryVoltage` и точный `DCVoltage`. Report выполняется при значимом изменении либо периодически; локальные Zigbee-атрибуты сначала должны успешно синхронизироваться, а transient failure приводит к отложенной повторной попытке. ADC, запись NVS и фоновая Zigbee-телеметрия откладываются, если идёт вспышка или до неё остаётся менее 50 мс.
+Телеметрия публикуется при изменении минимум на 2% или 20 мВ либо раз в 5 минут. `BatteryPercentageRemaining` репортится через Power Configuration, а точное напряжение — через стандартный Electrical Measurement `DCVoltage`. Поле Power Configuration `BatteryVoltage` обновляется и доступно для чтения, но по Zigbee/Arduino-ESP32 не является reportable attribute. Для `DCVoltage` используется одна ручная reporting-политика без параллельного automatic reporting. Локальные Zigbee-атрибуты сначала должны успешно синхронизироваться, а transient failure приводит к отложенной повторной попытке. ADC, запись NVS и фоновая Zigbee-телеметрия откладываются, если идёт вспышка или до неё остаётся менее 50 мс.
 
 ## Профиль энергопотребления
 

@@ -206,7 +206,14 @@ void performFactoryReset() {
   writeStatusLed(false);
 
   if (prefsReady) {
-    prefs.clear();
+    bool cleared = prefs.clear();
+    if (!cleared) {
+      delay(20);
+      cleared = prefs.clear();
+    }
+    if (!cleared) {
+      Serial.println("[WARN] Failed to clear beacon preferences during factory reset");
+    }
     prefs.end();
     prefsReady = false;
   }
@@ -319,7 +326,7 @@ void setup() {
   }
 
   if (!battery.startRuntime()) {
-    Serial.println("[WARN] Battery runtime/reporting setup incomplete; retry/reporting may depend on coordinator");
+    Serial.println("[WARN] Battery initial Zigbee attribute sync failed; retry scheduled");
   }
 
   Serial.println("[ZB] Stack started. Waiting for/joining network in background.");

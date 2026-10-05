@@ -68,18 +68,6 @@ bool BatteryTelemetryEndpoint::setBatteryTelemetryRaw(
          v == ESP_ZB_ZCL_STATUS_SUCCESS;
 }
 
-bool BatteryTelemetryEndpoint::reportBatteryVoltage() {
-  esp_zb_zcl_report_attr_cmd_t report{};
-  report.address_mode = ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT;
-  report.attributeID = ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID;
-  report.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
-  report.clusterID = ESP_ZB_ZCL_CLUSTER_ID_POWER_CONFIG;
-  report.zcl_basic_cmd.src_endpoint = _endpoint;
-  report.manuf_specific = 0x00U;
-  report.dis_default_resp = 0x00U;
-  return reportClusterAttribute(&report);
-}
-
 BatteryTelemetry::BatteryTelemetry()
     : endpoint_(BATTERY_SENSOR_ENDPOINT) {}
 
@@ -291,11 +279,13 @@ void BatteryTelemetry::service(uint32_t nowMs, bool backgroundAllowed) {
     return;
   }
 
+  // Power Configuration BatteryVoltage is readable but is not a reportable
+  // attribute in Arduino-ESP32/ZCL. Report percentage from Power
+  // Configuration and precise voltage through Electrical Measurement DCVoltage.
   const bool pctOk = endpoint_.reportBatteryPercentage();
-  const bool batteryVoltOk = endpoint_.reportBatteryVoltage();
   const bool dcVoltOk =
       endpoint_.reportDC(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE);
-  if (!(pctOk && batteryVoltOk && dcVoltOk)) return;
+  if (!(pctOk && dcVoltOk)) return;
 
   lastReportedBatteryPercent_ = batteryPercent_;
   lastReportedBatteryMv_ = batteryMv_;

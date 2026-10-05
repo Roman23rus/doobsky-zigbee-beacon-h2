@@ -99,6 +99,12 @@ class StatusAndControlTests(unittest.TestCase):
         self.assertIn("requestDirty_ = true", body)
         self.assertEqual(body.count("xTaskNotifyGive"), 1)
 
+    def test_factory_reset_checks_app_nvs_clear(self):
+        body = function_text(MAIN, "performFactoryReset")
+        self.assertIn("bool cleared = prefs.clear()", body)
+        self.assertIn("if (!cleared)", body)
+        self.assertIn("prefs.end()", body)
+
     def test_housekeeping_does_not_poll_at_one_millisecond(self):
         body = function_text(MAIN, "loop")
         self.assertNotIn("delay(1)", body)

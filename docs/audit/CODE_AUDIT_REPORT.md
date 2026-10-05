@@ -206,47 +206,33 @@ ESP32-H2 поддерживает и другие режимы, но 48/32 МГ�
 
 ### Замечания средней важности
 
-#### A0. Редкое race-окно в deferred CurrentLevel correction
+#### A0. Deferred CurrentLevel race — исправлено
 
-В `ZigbeeLight::service()` correction снимается из очереди под `mux_`, после чего `getLightLevel()` и `setLightLevel()` выполняются уже без этого application mutex. Zigbee task Arduino-ESP32 работает с приоритетом 5, а main/service может быть прерван новым Zigbee callback.
+Добавлены generation/in-flight tracking и идентификация task, выполняющей внутреннюю коррекцию. `setLightLevel()` по-прежнему вызывается только из normal task context, но его синхронный callback больше не может быть принят за новую внешнюю команду.
 
-Возможный редкий сценарий при быстрой последовательности команд:
+Если во время старой коррекции приходит новая команда, изменение generation обнаруживается после возврата из `setLightLevel()`, и последний логический level ставится на повторную коррекцию. Тем самым обеспечивается принцип **latest command wins** даже при burst-командах. Добавлена отдельная регрессия, запрещающая возврат к прежней небезопасной схеме.
 
-1. service забирает старую correction и очищает pending;
-2. Zigbee callback успевает поставить более новую correction;
-3. service применяет старый `setLightLevel()`;
-4. Arduino `setLightLevel()` синхронно вызывает `lightChanged()`;
-5. callback с ненулевым уровнем очищает `levelCorrectionPending_`, из-за чего более новая correction может потеряться.
+#### A1. Ошибка синхронизации батарейных атрибутов — исправлено
 
-Это не проявляется в обычном одиночном OFF/ON и не покрывается текущими source-text тестами, но формально оставляет race при burst-командах яркости/Off. Перед merge рекомендуется добавить generation/sequence token для correction или другой механизм, гарантирующий принцип «последняя команда авторитетна», и отдельный runtime/HIL regression test.
+Введён отдельный `batteryAttributeSyncPending_` и `syncAttributes()`. После каждого нового ADC-результата Power Configuration и Electrical Measurement сначала должны успешно обновиться локально; только после этого разрешается отправка report.
 
-#### A1. Результат обновления батарейных атрибутов игнорируется
+При transient failure dirty-состояние сохраняется, следующая попытка выполняется с backoff через `BATTERY_REPORT_RETRY_MS`. Таким образом устаревшее локальное значение больше не может быть принято за успешно опубликованную новую телеметрию.
 
-В `src/battery_telemetry.cpp:234-239` после завершения ADC-серии вызываются:
+#### A2. BatteryVoltage — перепроверено, дефекта нет
 
-- `setBatteryTelemetryRaw(...)`;
-- `setDCMeasurement(...)`.
+Сверка с `ZigbeeEP.h` Arduino-ESP32 3.3.12 показала, что Power Configuration `BatteryVoltage` прямо обозначен библиотекой как **не reportable attribute**. Поэтому добавлять собственный unsolicited report для него некорректно.
 
-Их возвращаемые значения не проверяются.
+Финальная политика:
 
-Если обновление локального Zigbee-атрибута временно завершится ошибкой, дальнейший manual report может отправить старое значение, а успешный report затем способен очистить `batteryTelemetryDirty_`. Рекомендация: считать телеметрию успешно обновлённой только после успешной записи всех необходимых локальных атрибутов; иначе оставлять dirty и повторять попытку.
+- `BatteryVoltage` обновляется локально и доступен координатору для чтения;
+- `BatteryPercentageRemaining` репортится стандартным `reportBatteryPercentage()`;
+- точное напряжение активно репортится стандартным Electrical Measurement `DCVoltage`.
 
-#### A2. BatteryVoltage обновляется, но явно не репортится
+Временная реализация custom `reportBatteryVoltage()`, появившаяся во время аудита, удалена после этой сверки.
 
-Power Configuration `BatteryVoltage` обновляется локально, однако ручной report отправляется только для:
+#### A3. Дублирующий DCVoltage reporting — исправлено
 
-- `BatteryPercentageRemaining` через `reportBatteryPercentage()`;
-- `DCVoltage` через `reportDC(...)`.
-
-В Arduino-ESP32 3.3.12 `reportBatteryPercentage()` репортит только attribute `BatteryPercentageRemaining`; отдельного штатного `reportBatteryVoltage()` в этом API нет.
-
-Это не ломает чтение атрибута координатором по запросу и не мешает DCVoltage, но координатор, ожидающий именно unsolicited-report Power Configuration/BatteryVoltage, может получать его не сразу. Нужно либо сознательно оставить DCVoltage главным точным каналом и задокументировать это, либо добавить стандартный generic report для BatteryVoltage.
-
-#### A3. DCVoltage одновременно использует automatic reporting и manual reporting
-
-В `startRuntime()` вызывается `setDCReporting(...)`, а в `service()` дополнительно выполняется `reportDC(...)`.
-
-Оба механизма валидны, но одновременно они потенциально создают дублирующий Zigbee-трафик. Для battery/power optimization лучше выбрать одну политику и проверить её на реальном координаторе.
+`setDCReporting(...)` удалён из runtime-пути. Для DCVoltage оставлена одна управляемая manual reporting-политика с существующими порогами изменения, периодическим обновлением и retry/backoff. Это исключает потенциальные дубли автоматических и ручных Zigbee reports.
 
 #### A4. 58/58 тестов не являются runtime-тестами C++
 
@@ -285,9 +271,9 @@ CI дополнительно компилирует реальную проши
 
 На pinned Arduino-ESP32 3.3.12 это работает и CI это подтверждает, но это точка повышенной связности с внутренней реализацией библиотеки. При обновлении framework этот модуль нужно проверять первым.
 
-#### A8. Factory reset не проверяет результат app-NVS clear
+#### A8. Проверка app-NVS при Factory Reset — исправлено
 
-`prefs.clear()` вызывается без проверки результата. Редкая ошибка очистки может оставить app-настройки яркости/OnOff после Zigbee factory reset. Рекомендация: логировать ошибку и при необходимости повторять/обрабатывать её до вызова `Zigbee.factoryReset()`.
+Результат `prefs.clear()` теперь проверяется. При первой ошибке выполняется одна повторная попытка; если она также неудачна, ошибка явно пишется в Serial перед закрытием Preferences handle и Zigbee factory reset.
 
 ### Репозиторий / GitHub
 

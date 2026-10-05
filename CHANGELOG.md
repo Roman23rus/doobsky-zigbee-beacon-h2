@@ -28,9 +28,13 @@
 - Добавлен явный стандартный report Power Configuration / `BatteryVoltage`.
 - Удалён дублирующий automatic DCVoltage reporting; battery telemetry использует единую manual change/periodic policy.
 - Устранены data race в pending state и Identify между Zigbee callback и main loop.
-- Исправлена внутренняя Zigbee CurrentLevel=0 коррекция вне callback, чтобы нулевой уровень не возвращался после OFF/ON.
+- Deferred Zigbee CurrentLevel correction защищена generation/in-flight tracking: старая коррекция не может остаться авторитетной после более новой команды.
+- Ошибки обновления локальных battery/DC Zigbee-атрибутов больше не приводят к report устаревшего значения; добавлен retry до успешной синхронизации.
+- Убран дублирующий automatic DCVoltage reporting — используется одна управляемая manual reporting-политика.
+- Power Configuration `BatteryVoltage` оставлен стандартным читаемым, но нерепортируемым атрибутом; точное напряжение репортится как Electrical Measurement `DCVoltage`.
+- Factory reset проверяет результат очистки app-NVS и повторяет неудачную очистку один раз.
 - Ошибки записи NVS больше не вызывают частый retry loop.
-- Battery runtime продолжает работать после transient failure начальной настройки Zigbee reporting.
+- Battery runtime продолжает работать после transient failure начальной настройки Zigbee-атрибутов.
 - Убраны лишние пробуждения, блокировки и повторные операции one-shot timer в BeaconEngine.
 
 ### Планируется

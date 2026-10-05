@@ -37,19 +37,18 @@ class BatteryClusterTests(unittest.TestCase):
         self.assertIn('ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID', source)
         self.assertIn('ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID', source)
 
-    def test_report_cycle_requires_all_standard_reports_to_succeed(self):
+    def test_report_cycle_requires_standard_reportable_values_to_succeed(self):
         source = battery_source()
         self.assertIn('reportBatteryPercentage()', source)
-        self.assertIn('reportBatteryVoltage()', source)
         self.assertIn('reportDC(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE)', source)
-        self.assertIn('if (!(pctOk && batteryVoltOk && dcVoltOk)) return;', source)
+        self.assertIn('if (!(pctOk && dcVoltOk)) return;', source)
         self.assertNotIn('setDCReporting(', source)
 
-    def test_battery_voltage_has_explicit_power_config_report(self):
+    def test_power_config_battery_voltage_is_readable_not_manually_reported(self):
         source = battery_source()
         self.assertIn('ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID', source)
-        self.assertIn('bool BatteryTelemetryEndpoint::reportBatteryVoltage()', source)
-        self.assertIn('reportClusterAttribute(&report)', source)
+        self.assertNotIn('reportBatteryVoltage', source)
+        self.assertIn('BatteryVoltage is readable but is not a reportable', source)
 
 
 if __name__ == "__main__":

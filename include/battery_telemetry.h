@@ -11,7 +11,6 @@ public:
   explicit BatteryTelemetryEndpoint(uint8_t endpoint);
   bool addBatteryPowerConfiguration(uint8_t percentageRaw, uint8_t voltageRaw);
   bool setBatteryTelemetryRaw(uint8_t percentageRaw, uint8_t voltageRaw);
-  bool reportBatteryVoltage();
 };
 
 class BatteryTelemetry {
