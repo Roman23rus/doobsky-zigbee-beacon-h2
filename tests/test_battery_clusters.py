@@ -37,10 +37,19 @@ class BatteryClusterTests(unittest.TestCase):
         self.assertIn('ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID', source)
         self.assertIn('ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID', source)
 
-    def test_report_cycle_requires_both_standard_reports_to_succeed(self):
+    def test_report_cycle_requires_all_standard_reports_to_succeed(self):
         source = battery_source()
-        self.assertIn('if (!(pctOk && voltOk)) return;', source)
-        self.assertNotIn('if (!(pctOk || voltOk)) return;', source)
+        self.assertIn('reportBatteryPercentage()', source)
+        self.assertIn('reportBatteryVoltage()', source)
+        self.assertIn('reportDC(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE)', source)
+        self.assertIn('if (!(pctOk && batteryVoltOk && dcVoltOk)) return;', source)
+        self.assertNotIn('setDCReporting(', source)
+
+    def test_battery_voltage_has_explicit_power_config_report(self):
+        source = battery_source()
+        self.assertIn('ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID', source)
+        self.assertIn('bool BatteryTelemetryEndpoint::reportBatteryVoltage()', source)
+        self.assertIn('reportClusterAttribute(&report)', source)
 
 
 if __name__ == "__main__":
