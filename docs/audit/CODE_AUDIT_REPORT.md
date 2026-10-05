@@ -362,3 +362,37 @@ GitHub Actions run #102:
 
 Остаётся обязательный аппаратный HIL/runtime тест перед merge: Zigbee join/rejoin, burst ON/OFF/brightness, power-cycle persistence, 64 МГц, RGB/PWM smoothness и timing/jitter.
 
+## Частичный HIL/runtime test — 2026-10-05
+
+На реальный ESP32-H2 SuperMini прошита audit-прошивка из code commit `37d92c9`. Последующий commit `a80f6ca` изменял только документацию, поэтому исполняемый код идентичен актуальной audit-ветке на момент теста.
+
+Проверено на ПК и контроллере:
+
+- свежий detached worktree создан непосредственно от `origin/audit/full-code-optimization-2026-10-04`;
+- локально: **62/62 tests PASS**;
+- локальная PlatformIO production build: **SUCCESS**;
+- PlatformIO 6.2.0 / pioarduino 55.03.312 / Arduino-ESP32 3.3.12;
+- RAM: **32 768 / 327 680 байт (10,0%)**;
+- Flash: **669 805 / 1 310 720 байт (51,1%)**;
+- прошивка через USB на **COM5** завершена успешно;
+- esptool определил ESP32-H2 rev. v0.1 и 4 MB Flash;
+- bootloader, partitions и firmware прошиты с успешной SHA-проверкой;
+- после reset прошивка штатно стартовала;
+- Serial banner подтвердил **CPU 64 MHz**, **PWM 1000 Hz / 10-bit**, EP1 Battery Meter Interface и EP2 Dimmable Light;
+- Zigbee stack успешно стартовал без startup error;
+- дополнительный пассивный serial-monitor в течение 30 секунд не зафиксировал spontaneous reboot, panic или error output.
+
+### Что ещё требует интерактивной проверки
+
+Эти пункты нельзя достоверно закрыть только через USB/CI и требуют действий через Zigbee-хаб и визуального наблюдения устройства:
+
+1. фактический join/rejoin и состояние в хабе;
+2. ON/OFF и изменение brightness;
+3. серия быстрых burst-команд ON/OFF/brightness;
+4. сохранение brightness после полного снятия питания;
+5. визуальная плавность основного маяка и RGB при 10-ms RGB throttle;
+6. отсутствие заметного timing/jitter в полном цикле;
+7. сравнение фактического тока 96/64 MHz, если требуется количественная оценка экономии.
+
+До подтверждения этих пунктов PR #2 остаётся **Draft** и в `main` не переносится.
+
