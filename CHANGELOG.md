@@ -23,6 +23,10 @@
 
 ### Исправлено
 
+- Deferred correction `CurrentLevel=0` теперь использует generation/in-flight tracking: при burst-командах действует принцип latest-command-wins.
+- Battery/DC attributes проверяются после обновления; при transient failure синхронизация повторяется до report.
+- Добавлен явный стандартный report Power Configuration / `BatteryVoltage`.
+- Удалён дублирующий automatic DCVoltage reporting; battery telemetry использует единую manual change/periodic policy.
 - Устранены data race в pending state и Identify между Zigbee callback и main loop.
 - Исправлена внутренняя Zigbee CurrentLevel=0 коррекция вне callback, чтобы нулевой уровень не возвращался после OFF/ON.
 - Ошибки записи NVS больше не вызывают частый retry loop.
