@@ -237,14 +237,39 @@ void updateNetworkDiagnostics(uint32_t nowMs) {
   printNetworkDiagnostics(changed ? "transition" : "heartbeat");
 }
 
+void coordinatorProbeCallback(esp_zb_zdp_status_t zdoStatus,
+                              uint16_t address, esp_zb_af_node_desc_t *desc,
+                              void *) {
+  Serial.printf("[ZDO-PING] coordinator reply status=0x%02X address=0x%04X descriptor=%u\n",
+                static_cast<unsigned>(zdoStatus), address, desc != nullptr);
+}
+
+void requestCoordinatorProbe() {
+  if (!Zigbee.connected()) {
+    Serial.println("[ZDO-PING] rejected: not connected");
+    return;
+  }
+  if (!esp_zb_lock_acquire(pdMS_TO_TICKS(50))) {
+    Serial.println("[ZDO-PING] rejected: lock busy");
+    return;
+  }
+  esp_zb_zdo_node_desc_req_param_t request{};
+  request.dst_nwk_addr = 0x0000; // Zigbee Trust Center / coordinator
+  esp_zb_zdo_node_desc_req(&request, &coordinatorProbeCallback, nullptr);
+  esp_zb_lock_release();
+  Serial.println("[ZDO-PING] sent NodeDescriptorRequest to coordinator 0x0000");
+}
+
 void executeDiagnosticCommand(const char *cmd) {
   if (!strcmp(cmd, "help") || !strcmp(cmd, "?")) {
-    Serial.println("[DIAG] Commands: status | battery | sample | report | help");
+    Serial.println("[DIAG] Commands: status | battery | sample | report | ping | help");
   } else if (!strcmp(cmd, "status")) {
     printNetworkDiagnostics("serial");
     battery.printDiagnostics();
     Serial.printf("[DIAG] EP2 state=%u level=%u engine=%u\n",
                   zigbeeLight.on(), zigbeeLight.level(), activeOn);
+  } else if (!strcmp(cmd, "ping")) {
+    requestCoordinatorProbe();
   } else if (!strcmp(cmd, "battery")) {
     battery.printDiagnostics();
   } else if (!strcmp(cmd, "sample")) {
@@ -362,7 +387,7 @@ uint8_t currentNodePowerLevel() {
 }
 
 void syncZigbeePowerDescriptors() {
-  if (!Zigbee.started()) return;
+  if (!Zigbee.started() || !Zigbee.connected()) return;
 
   static bool basicPowerSourceSynced = false;
   static uint8_t lastNodePowerLevel = 0xFF;
