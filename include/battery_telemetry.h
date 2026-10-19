@@ -21,6 +21,9 @@ public:
 
   bool configureEndpoint();
   bool startRuntime();
+  void printDiagnostics() const;
+  void requestImmediateReport();
+  void requestImmediateSample();
   bool needsService(uint32_t nowMs) const;
   void service(uint32_t nowMs, bool backgroundAllowed);
   ZigbeeEP *endpoint();
