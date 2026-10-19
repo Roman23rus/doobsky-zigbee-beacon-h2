@@ -11,7 +11,7 @@ ALL_SOURCE = MAIN + BATTERY_H + BATTERY_CPP
 
 class Zigbee3ProfileTests(unittest.TestCase):
     def test_version_and_endpoint_order(self):
-        self.assertIn('FW_VERSION[] = "0.8.1-alpha.1"', CFG)
+        self.assertIn('FW_VERSION[] = "0.8.2-alpha.4-sprut-zdo"', CFG)
         self.assertIn('BATTERY_SENSOR_ENDPOINT = 1', CFG)
         self.assertIn('LIGHT_ENDPOINT = 2', CFG)
 
