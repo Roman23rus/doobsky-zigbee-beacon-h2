@@ -1,36 +1,33 @@
 {
-  "name": "Doobsky Zigbee Beacon H2",
+  "name": "Маяк Doobsky",
   "manufacturer": "Doobsky",
   "model": "DBL-BAT",
+  "manufacturerId": "Doobsky",
   "modelId": "DBL-BAT",
   "status": "Test",
   "services": [
     {
       "type": "Lightbulb",
-      "name": "Маяк",
+      "name": "Свет маяка",
       "characteristics": [
         {
           "type": "On",
-          "link": [
-            {
-              "endpoint": 2,
-              "cluster": "0006_OnOff",
-              "attribute": "0000_OnOff"
-            }
-          ]
+          "link": {
+            "endpoint": 2,
+            "cluster": "0006_OnOff",
+            "attribute": "0000_OnOff"
+          }
         },
         {
           "type": "Brightness",
           "minValue": 0,
           "maxValue": 100,
-          "link": [
-            {
-              "endpoint": 2,
-              "cluster": "0008_LevelControl",
-              "attribute": "0000_CurrentLevel",
-              "scale": 0.3937007874015748
-            }
-          ]
+          "link": {
+            "endpoint": 2,
+            "cluster": "0008_LevelControl",
+            "attribute": "0000_CurrentLevel",
+            "scale": 0.3937007874015748
+          }
         }
       ]
     },
@@ -42,30 +39,42 @@
           "type": "BatteryLevel",
           "minValue": 0,
           "maxValue": 100,
-          "link": [
-            {
-              "endpoint": 1,
-              "cluster": "0001_PowerConfiguration",
-              "attribute": "0021_BatteryPercentageRemaining",
-              "scale": 0.5
-            }
-          ]
+          "write": false,
+          "link": {
+            "endpoint": 1,
+            "cluster": "0001_PowerConfiguration",
+            "attribute": "0021_BatteryPercentageRemaining",
+            "scale": 0.5
+          }
+        },
+        {
+          "type": "StatusLowBattery",
+          "write": false,
+          "map": {
+            "0": "41~200",
+            "1": "0~40"
+          },
+          "link": {
+            "endpoint": 1,
+            "cluster": "0001_PowerConfiguration",
+            "attribute": "0021_BatteryPercentageRemaining"
+          }
         }
       ]
-    }
-  ],
-  "options": [
+    },
     {
-      "name": "Battery voltage (V)",
-      "type": "Double",
-      "unit": "V",
-      "inputType": "STATUS",
-      "link": [
+      "type": "C_VoltMeter",
+      "name": "Напряжение аккумулятора",
+      "characteristics": [
         {
-          "endpoint": 1,
-          "cluster": "0B04_ElectricalMeasurement",
-          "attribute": "0100_DCVoltage",
-          "scale": 0.001
+          "type": "C_Volt",
+          "write": false,
+          "link": {
+            "endpoint": 1,
+            "cluster": "0B04_ElectricalMeasurement",
+            "attribute": "0100_DCVoltage",
+            "scale": 0.001
+          }
         }
       ]
     }
