@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <Zigbee.h>
+#include <cstring>
 #include "esp_zigbee_core.h"
 #include "beacon_engine.h"
 #include "battery_telemetry.h"
@@ -188,6 +189,88 @@ void updateIndicators(uint32_t nowMs) {
     writeStatusLed(false);
   } else {
     writeStatusLedLevel(smoothBreathingLevel(nowMs));
+  }
+}
+
+// Passive diagnostics. Do not initiate commissioning or reset Zigbee NVS.
+bool diagNetworkKnown = false;
+bool diagLastStarted = false;
+bool diagLastConnected = false;
+uint32_t diagLastNetMs = 0;
+char diagCommandBuffer[32] = {};
+uint8_t diagCommandLength = 0;
+
+void printNetworkDiagnostics(const char *reason) {
+  const bool started = Zigbee.started();
+  const bool connected = Zigbee.connected();
+  Serial.printf("[NET] %s uptimeMs=%lu started=%u connected=%u rxOnIdle=%u\n",
+                reason, static_cast<unsigned long>(millis()),
+                started, connected, ZIGBEE_RX_ON_WHEN_IDLE);
+  if (!started) return;
+
+  // Consult stack-owned data only under the Zigbee lock.
+  if (!esp_zb_lock_acquire(pdMS_TO_TICKS(30))) {
+    Serial.println("[NET] snapshot: Zigbee lock timeout");
+    return;
+  }
+  const uint16_t pan = esp_zb_get_pan_id();
+  const uint16_t shortAddress = esp_zb_get_short_address();
+  const uint8_t channel = esp_zb_get_current_channel();
+  const bool factoryNew = esp_zb_bdb_is_factory_new();
+  esp_zb_lock_release();
+  Serial.printf("[NET] pan=0x%04X short=0x%04X channel=%u factoryNew=%u EP1=SimpleSensor EP2=DimmableLight\n",
+                pan, shortAddress, channel, factoryNew);
+}
+
+void updateNetworkDiagnostics(uint32_t nowMs) {
+  const bool started = Zigbee.started();
+  const bool connected = Zigbee.connected();
+  const bool changed = !diagNetworkKnown ||
+                       diagLastStarted != started ||
+                       diagLastConnected != connected;
+  if (!changed && nowMs - diagLastNetMs < 30000U) return;
+  if (!backgroundWorkAllowed()) return;
+  diagLastStarted = started;
+  diagLastConnected = connected;
+  diagNetworkKnown = true;
+  diagLastNetMs = nowMs;
+  printNetworkDiagnostics(changed ? "transition" : "heartbeat");
+}
+
+void executeDiagnosticCommand(const char *cmd) {
+  if (!strcmp(cmd, "help") || !strcmp(cmd, "?")) {
+    Serial.println("[DIAG] Commands: status | battery | sample | report | help");
+  } else if (!strcmp(cmd, "status")) {
+    printNetworkDiagnostics("serial");
+    battery.printDiagnostics();
+    Serial.printf("[DIAG] EP2 state=%u level=%u engine=%u\n",
+                  zigbeeLight.on(), zigbeeLight.level(), activeOn);
+  } else if (!strcmp(cmd, "battery")) {
+    battery.printDiagnostics();
+  } else if (!strcmp(cmd, "sample")) {
+    battery.requestImmediateSample();
+  } else if (!strcmp(cmd, "report")) {
+    battery.requestImmediateReport();
+  } else if (cmd[0]) {
+    Serial.printf("[DIAG] Unknown command: %s (type help)\n", cmd);
+  }
+}
+
+void processDiagnosticSerial() {
+  // Non-blocking input. Never wait for a complete line or hinder the optical task.
+  uint8_t count = 0;
+  while (Serial.available() && ++count <= 48) {
+    const char ch = static_cast<char>(Serial.read());
+    if (ch == '\r' || ch == '\n') {
+      if (diagCommandLength > 0) {
+        diagCommandBuffer[diagCommandLength] = 0;
+        executeDiagnosticCommand(diagCommandBuffer);
+        diagCommandLength = 0;
+      }
+    } else if (ch >= 32 && ch <= 126 &&
+               diagCommandLength + 1 < sizeof(diagCommandBuffer)) {
+      diagCommandBuffer[diagCommandLength++] = ch;
+    }
   }
 }
 
@@ -385,10 +468,13 @@ void setup() {
   syncZigbeePowerDescriptors();
 
   Serial.println("[ZB] Stack started. Waiting for/joining network in background.");
+  Serial.println("[DIAG] Sprut.Hub diagnostics: type help over 115200 baud");
 }
 
 void loop() {
   const uint32_t nowMs = millis();
+  if (backgroundWorkAllowed()) processDiagnosticSerial();
+  updateNetworkDiagnostics(nowMs);
   zigbeeLight.service();
   applyRequestedState(nowMs);
   updateButton(nowMs);
