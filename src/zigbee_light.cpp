@@ -1,6 +1,7 @@
 #include "zigbee_light.h"
 
 #include "config.h"
+#include "esp_zigbee_secur.h"
 
 using namespace BeaconConfig;
 
