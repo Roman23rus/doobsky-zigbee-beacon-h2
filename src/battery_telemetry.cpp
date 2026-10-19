@@ -11,10 +11,10 @@ static constexpr int16_t DC_VOLTAGE_UNKNOWN = INT16_MIN;
 
 BatteryTelemetryEndpoint::BatteryTelemetryEndpoint(uint8_t endpoint)
     : ZigbeeElectricalMeasurement(endpoint) {
-  _device_id = ESP_ZB_HA_METER_INTERFACE_DEVICE_ID;
+  _device_id = ESP_ZB_HA_SIMPLE_SENSOR_DEVICE_ID;
   _ep_config.endpoint = endpoint;
   _ep_config.app_profile_id = ESP_ZB_AF_HA_PROFILE_ID;
-  _ep_config.app_device_id = ESP_ZB_HA_METER_INTERFACE_DEVICE_ID;
+  _ep_config.app_device_id = ESP_ZB_HA_SIMPLE_SENSOR_DEVICE_ID;
   _ep_config.app_device_version = 0;
 }
 

@@ -17,6 +17,7 @@ public:
   ZigbeeLight &operator=(const ZigbeeLight &) = delete;
 
   bool begin(bool initialOn, uint8_t initialLevel);
+  bool setBasicPowerSourceBattery();
   bool setLocalState(bool on, uint8_t level);
   void service();
   bool on() const;

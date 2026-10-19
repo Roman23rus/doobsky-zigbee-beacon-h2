@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <Zigbee.h>
+#include "esp_zigbee_core.h"
 #include "beacon_engine.h"
 #include "battery_telemetry.h"
 #include "zigbee_light.h"
@@ -262,6 +263,59 @@ void configureCpuFrequency() {
   }
 }
 
+uint8_t currentNodePowerLevel() {
+  if (!battery.valid()) {
+    // Zigbee Power Descriptor has no "unknown" level encoding. Until the ADC
+    // is valid, keep the conservative mandatory encoding rather than inventing
+    // a charge value.
+    return ESP_ZB_AF_NODE_POWER_SOURCE_LEVEL_CRITICAL;
+  }
+
+  const uint8_t pct = battery.percent();
+  if (pct <= 16) return ESP_ZB_AF_NODE_POWER_SOURCE_LEVEL_CRITICAL;
+  if (pct <= 49) return ESP_ZB_AF_NODE_POWER_SOURCE_LEVEL_33_PERCENT;
+  if (pct <= 82) return ESP_ZB_AF_NODE_POWER_SOURCE_LEVEL_66_PERCENT;
+  return ESP_ZB_AF_NODE_POWER_SOURCE_LEVEL_100_PERCENT;
+}
+
+void syncZigbeePowerDescriptors() {
+  if (!Zigbee.started()) return;
+
+  static bool basicPowerSourceSynced = false;
+  static uint8_t lastNodePowerLevel = 0xFF;
+
+  if (!basicPowerSourceSynced) {
+    if (!zigbeeLight.setBasicPowerSourceBattery()) return;
+
+    // The node descriptor and the Basic clusters agree on battery power.
+    if (!esp_zb_lock_acquire(pdMS_TO_TICKS(10))) return;
+    esp_zb_set_node_descriptor_power_source(false);
+    esp_zb_lock_release();
+    basicPowerSourceSynced = true;
+    Serial.println("[ZB] Battery power source synchronized");
+  }
+
+  const uint8_t level = currentNodePowerLevel();
+  if (level == lastNodePowerLevel) return;
+
+  esp_zb_af_node_power_desc_t power{};
+  power.current_power_mode = ZIGBEE_RX_ON_WHEN_IDLE
+      ? ESP_ZB_AF_NODE_POWER_MODE_SYNC_ON_WHEN_IDLE
+      : ESP_ZB_AF_NODE_POWER_MODE_COME_ON_PERIODICALLY;
+  power.available_power_sources =
+      ESP_ZB_AF_NODE_POWER_SOURCE_RECHARGEABLE_BATTERY;
+  power.current_power_source =
+      ESP_ZB_AF_NODE_POWER_SOURCE_RECHARGEABLE_BATTERY;
+  power.current_power_source_level = level;
+  if (!esp_zb_lock_acquire(pdMS_TO_TICKS(10))) return;
+  esp_zb_set_node_power_descriptor(power);
+  esp_zb_lock_release();
+  lastNodePowerLevel = level;
+  Serial.printf("[BAT] adc=%umV valid=%u percent=%u ZDOlevel=%u\n",
+                unsigned(battery.millivolts()),unsigned(battery.valid()),
+                unsigned(battery.percent()),unsigned(level));
+}
+
 void printBanner() {
   Serial.println();
   Serial.println("========================================");
@@ -278,7 +332,7 @@ void printBanner() {
   Serial.printf(" Zigbee status: blue GPIO%u; beacon mirror: RGB GPIO%u\n",
                 STATUS_LED_PIN, RGB_LED_PIN);
   Serial.printf(" Battery ADC: GPIO%u (2:1 divider)\n", BATTERY_ADC_PIN);
-  Serial.println(" Endpoints: EP1 Battery Meter Interface; EP2 Dimmable Light");
+  Serial.println(" Endpoints: EP1 Battery Simple Sensor; EP2 Dimmable Light");
   Serial.println(" BOOT short: toggle beacon");
   Serial.println(" BOOT 5s: Zigbee factory reset");
   Serial.println("========================================");
@@ -328,6 +382,7 @@ void setup() {
   if (!battery.startRuntime()) {
     Serial.println("[WARN] Battery initial Zigbee attribute sync failed; retry scheduled");
   }
+  syncZigbeePowerDescriptors();
 
   Serial.println("[ZB] Stack started. Waiting for/joining network in background.");
 }
@@ -342,6 +397,7 @@ void loop() {
   if (battery.needsService(nowMs)) {
     battery.service(nowMs, backgroundWorkAllowed());
   }
+  syncZigbeePowerDescriptors();
   savePersistentStateIfNeeded(nowMs);
 
   delay(HOUSEKEEPING_INTERVAL_MS);
