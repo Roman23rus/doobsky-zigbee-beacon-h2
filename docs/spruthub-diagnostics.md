@@ -52,7 +52,7 @@ Type `help`, `status`, `battery`, `sample`, `report`, or `ping` followed by newl
 
 - Perform a fresh Zigbee interview of the joined device and confirm EP1 Simple Sensor, EP2 Dimmable Light and current battery attributes.
 - Read/show 61% battery, 3.87 V and verify EP2 OnOff/LevelControl, including a restart test.
-- The draft template `templates/spruthub/Doobsky-DBL-BAT-TEST.json` is **not validated** against Sprut.Hub's JSON schema or loaded into the hub; do not install it as a production template.
+- The custom template `templates/spruthub/Doobsky-DBL-BAT-TEST.json` was corrected and passes strict validation against `Templates/schema.json` extracted from the user's Sprut.Hub DevInfo archive (2026-10-19). It maps EP2 OnOff and CurrentLevel to Lightbulb, EP1 BatteryPercentageRemaining to BatteryLevel and low-battery status (raw threshold 40 = 20%), and EP1 DCVoltage to C_VoltMeter. **Validation is static only**: it has not yet been installed/tested in Sprut.Hub, so its runtime rendering, scaling and controls must be checked there. Use Catalog -> Zigbee -> custom template upload; do not edit templates on the hub flash filesystem.
 - Network association and four coordinator responses are proved; fully working UI mapping and long-term (>95 s) availability are not yet proved.
 
 Do not repeatedly factory reset the beacon or erase the Zigbee network as a debugging shortcut. Zigbee short addresses are assigned by the network and should not be pinned in firmware.
