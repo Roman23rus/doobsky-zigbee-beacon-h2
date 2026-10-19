@@ -63,34 +63,28 @@ class StatusAndControlTests(unittest.TestCase):
         self.assertIn('prefs.putBool("on"', body)
         self.assertIn('prefs.putUChar("level"', body)
 
-    def test_off_level_zero_does_not_erase_remembered_brightness(self):
-        main_body = function_text(MAIN, "applyRequestedState")
-        self.assertIn("!newOn && newLevel == 0", main_body)
-        self.assertIn("activeLevel", main_body)
-
+    def test_level_zero_keeps_remembered_brightness_without_rewriting_onoff(self):
         handler = function_text(ZIGBEE, "ZigbeeLight::handleLightChange")
-        self.assertIn("level == 0", handler)
-        self.assertIn("level_", handler)
-        self.assertIn("levelCorrectionPending_", handler)
+        transition = (ROOT / "include" / "light_state_transition.h").read_text(encoding="utf-8-sig")
+        self.assertIn("normalizedLevel == 0", transition)
+        self.assertIn("rememberedLevel", handler)
+        self.assertIn("applyLightAttribute", handler)
+        self.assertNotIn("setLightLevel(", ZIGBEE)
+        self.assertNotIn("levelCorrection", ZIGBEE_H + ZIGBEE)
+        self.assertNotIn("zigbeeLight.service()", MAIN)
 
-        service = function_text(ZIGBEE, "ZigbeeLight::service")
-        self.assertIn("setLightLevel(level)", service)
-
-    def test_deferred_level_correction_is_latest_command_wins(self):
-        service = function_text(ZIGBEE, "ZigbeeLight::service")
+    def test_callback_does_not_block_or_log(self):
         handler = function_text(ZIGBEE, "ZigbeeLight::handleLightChange")
+        self.assertNotIn("Serial.", handler)
+        self.assertNotIn("delay(", handler)
+        self.assertIn("++traceSequence_", handler)
+        self.assertIn("lastTrace_", handler)
+        self.assertIn("callback(state, effectiveLevel)", handler)
+        self.assertIn("readTrace(lightTrace, seenLightTrace)", MAIN)
 
-        self.assertIn("levelCorrectionGeneration_", ZIGBEE_H)
-        self.assertIn("levelCorrectionTask_", ZIGBEE_H)
-        self.assertIn("generation = levelCorrectionGeneration_", service)
-        self.assertIn("xTaskGetCurrentTaskHandle()", service)
-        self.assertIn("levelCorrectionGeneration_ != generation", service)
-        self.assertIn("levelCorrection_ = level_", service)
-        self.assertIn("levelCorrectionPending_ = true", service)
-
-        self.assertIn("currentTask == levelCorrectionTask_", handler)
-        self.assertIn("++levelCorrectionGeneration_", handler)
-        self.assertNotIn("getLightLevel()", service)
+    def test_local_setter_is_only_writable_path_in_project(self):
+        self.assertEqual(ZIGBEE.count("endpoint_.setLight("), 2) # begin and local
+        self.assertNotIn("endpoint_.setLightLevel(", ZIGBEE)
 
     def test_latest_beacon_request_is_authoritative(self):
         body = function_text(BEACON, "BeaconEngine::request")

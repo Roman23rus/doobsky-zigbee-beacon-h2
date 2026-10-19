@@ -7,6 +7,12 @@
 
 namespace Doobsky {
 
+class BuildIdDimmableLight : public ZigbeeDimmableLight {
+public:
+  using ZigbeeDimmableLight::ZigbeeDimmableLight;
+  bool addBuildId();
+};
+
 class ZigbeeLight {
 public:
   using StateChangedCallback = void (*)(bool on, uint8_t level);
@@ -19,9 +25,17 @@ public:
   bool begin(bool initialOn, uint8_t initialLevel);
   bool setBasicPowerSourceBattery();
   bool setLocalState(bool on, uint8_t level);
-  void service();
   bool on() const;
   uint8_t level() const;
+  struct LightTrace {
+    uint32_t sequence;
+    bool on;
+    uint8_t rawLevel;
+    uint8_t effectiveLevel;
+    bool onChanged;
+    bool levelChanged;
+  };
+  bool readTrace(LightTrace &trace, uint32_t &seenSequence) const;
 
   void setStateChangedCallback(StateChangedCallback callback);
   void setIdentifyChangedCallback(IdentifyChangedCallback callback);
@@ -34,20 +48,17 @@ private:
   static uint8_t normalizeLevel(uint8_t level);
 
   static ZigbeeLight *instance_;
-  ZigbeeDimmableLight endpoint_;
+  BuildIdDimmableLight endpoint_;
   mutable portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
   bool on_ = false;
   uint8_t level_ = 0;
 
-  // A coordinator can write CurrentLevel=0 before the Arduino callback runs.
-  // The correction is deferred out of the Zigbee callback to avoid stack-lock
-  // re-entry. Generation/in-flight tracking makes "latest command wins" even
-  // if a new Zigbee command arrives while an older correction is executing.
-  bool levelCorrectionPending_ = false;
-  uint8_t levelCorrection_ = 0;
-  uint32_t levelCorrectionGeneration_ = 0;
-  TaskHandle_t levelCorrectionTask_ = nullptr;
-  uint32_t levelCorrectionInFlightGeneration_ = 0;
+  // Track physical brightness independently of ZCL zero while OFF.
+  // Never call Arduino setLightLevel() for correction: its implementation also
+  // rewrites OnOff and can overwrite a newer coordinator command.
+  uint8_t rememberedLevel_ = 254;
+  uint32_t traceSequence_ = 0;
+  LightTrace lastTrace_ = {};
 
   StateChangedCallback stateChangedCallback_ = nullptr;
   IdentifyChangedCallback identifyChangedCallback_ = nullptr;

@@ -481,9 +481,6 @@ void setup() {
     ESP.restart();
   }
 
-  loadPersistentState();
-  beacon.request(activeOn, activeLevel);
-
   zigbeeLight.setStateChangedCallback(onZigbeeLightChange);
   zigbeeLight.setIdentifyChangedCallback(onIdentify);
 
@@ -492,6 +489,11 @@ void setup() {
     Serial.println("[FATAL] Failed to configure/register EP1 battery sensor");
     ESP.restart();
   }
+
+  // Battery baseline before enabling restored optical load (may draw high
+  // current during a flash). Subsequent samples run in dark windows.
+  loadPersistentState();
+  beacon.request(activeOn, activeLevel);
 
   Serial.println("[ZB] Starting Zigbee stack...");
   if (!zigbeeLight.begin(activeOn, activeLevel)) {
@@ -513,7 +515,16 @@ void loop() {
   const uint32_t nowMs = millis();
   processDiagnosticSerial();  // non-blocking; must work even if optical task is not reaching dark windows
   updateNetworkDiagnostics(nowMs);
-  zigbeeLight.service();
+  static uint32_t seenLightTrace = 0;
+  Doobsky::ZigbeeLight::LightTrace lightTrace{};
+  if (zigbeeLight.readTrace(lightTrace, seenLightTrace)) {
+    // The stock Arduino callback does not expose source cluster or TSN.
+    // Changes are observations, not falsely attributed to a remote command.
+    Serial.printf("[ZCL-OBS] EP2 seq=%lu on=%u rawLevel=%u logicalLevel=%u changedOn=%u changedLevel=%u tsn=unavailable\n",
+                  static_cast<unsigned long>(lightTrace.sequence), lightTrace.on,
+                  lightTrace.rawLevel, lightTrace.effectiveLevel,
+                  lightTrace.onChanged, lightTrace.levelChanged);
+  }
   applyRequestedState(nowMs);
   updateButton(nowMs);
   updateIndicators(nowMs);

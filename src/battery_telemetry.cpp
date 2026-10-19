@@ -1,6 +1,7 @@
 #include "battery_telemetry.h"
 
 #include "config.h"
+#include "zigbee_build_id.h"
 
 using namespace BeaconConfig;
 
@@ -29,6 +30,8 @@ bool BatteryTelemetryEndpoint::addBatteryPowerConfiguration(
           basic, ESP_ZB_ZCL_ATTR_BASIC_POWER_SOURCE_ID, &source) != ESP_OK) {
     return false;
   }
+
+  if (!addDoobskyBuildId(basic)) return false;
 
   auto *power = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_POWER_CONFIG);
   if (!power) return false;

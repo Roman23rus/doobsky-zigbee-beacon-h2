@@ -1,11 +1,19 @@
 #include "zigbee_light.h"
 
 #include "config.h"
+#include "zigbee_build_id.h"
+#include "light_state_transition.h"
 #include "esp_zigbee_secur.h"
 
 using namespace BeaconConfig;
 
 namespace Doobsky {
+
+bool BuildIdDimmableLight::addBuildId() {
+  return addDoobskyBuildId(esp_zb_cluster_list_get_cluster(
+      _cluster_list, ESP_ZB_ZCL_CLUSTER_ID_BASIC,
+      ESP_ZB_ZCL_CLUSTER_SERVER_ROLE));
+}
 
 ZigbeeLight *ZigbeeLight::instance_ = nullptr;
 
@@ -19,12 +27,14 @@ bool ZigbeeLight::begin(bool initialOn, uint8_t initialLevel) {
   portENTER_CRITICAL(&mux_);
   on_ = initialOn;
   level_ = initialLevel;
+  rememberedLevel_ = initialLevel == 0 ? DEFAULT_LEVEL : initialLevel;
   portEXIT_CRITICAL(&mux_);
 
   endpoint_.onLightChange(&ZigbeeLight::lightChangeThunk);
   endpoint_.onIdentify(&ZigbeeLight::identifyThunk);
 
-  if (!endpoint_.setManufacturerAndModel(MANUFACTURER, MODEL)) return false;
+  if (!endpoint_.setManufacturerAndModel(MANUFACTURER, MODEL) ||
+      !endpoint_.addBuildId()) return false;
   endpoint_.setVersion(ZIGBEE_APP_VERSION);
   endpoint_.setHardwareVersion(ZIGBEE_HW_VERSION);
 
@@ -53,60 +63,6 @@ bool ZigbeeLight::setBasicPowerSourceBattery() {
 
 bool ZigbeeLight::setLocalState(bool on, uint8_t level) {
   return endpoint_.setLight(on, normalizeLevel(level));
-}
-
-void ZigbeeLight::service() {
-  bool pending = false;
-  uint8_t level = 0;
-  uint32_t generation = 0;
-
-  portENTER_CRITICAL(&mux_);
-  if (levelCorrectionPending_) {
-    pending = true;
-    level = levelCorrection_;
-    generation = levelCorrectionGeneration_;
-  }
-  portEXIT_CRITICAL(&mux_);
-
-  if (!pending) return;
-
-  // Mark this task as the owner of the deferred correction. setLightLevel()
-  // invokes the Arduino light callback synchronously before updating ZCL
-  // attributes; handleLightChange() ignores only that self-generated callback.
-  const TaskHandle_t currentTask = xTaskGetCurrentTaskHandle();
-  portENTER_CRITICAL(&mux_);
-  if (!levelCorrectionPending_ ||
-      levelCorrectionGeneration_ != generation) {
-    portEXIT_CRITICAL(&mux_);
-    return;
-  }
-  levelCorrectionTask_ = currentTask;
-  levelCorrectionInFlightGeneration_ = generation;
-  portEXIT_CRITICAL(&mux_);
-
-  const bool ok = endpoint_.setLightLevel(level);
-
-  portENTER_CRITICAL(&mux_);
-  if (levelCorrectionTask_ == currentTask &&
-      levelCorrectionInFlightGeneration_ == generation) {
-    levelCorrectionTask_ = nullptr;
-    levelCorrectionInFlightGeneration_ = 0;
-  }
-
-  if (levelCorrectionGeneration_ != generation) {
-    // A newer external/local command arrived while the old correction was in
-    // flight. The old setLightLevel() may have touched the endpoint after that
-    // command, so explicitly queue the newest logical level for convergence.
-    levelCorrection_ = level_;
-    levelCorrectionPending_ = true;
-  } else if (ok) {
-    levelCorrectionPending_ = false;
-  } else {
-    // Keep the same generation pending and retry from normal task context.
-    levelCorrection_ = level;
-    levelCorrectionPending_ = true;
-  }
-  portEXIT_CRITICAL(&mux_);
 }
 
 bool ZigbeeLight::on() const {
@@ -145,45 +101,39 @@ void ZigbeeLight::identifyThunk(uint16_t timeSeconds) {
   if (instance_ != nullptr) instance_->handleIdentify(timeSeconds);
 }
 
-void ZigbeeLight::handleLightChange(bool state, uint8_t level) {
-  level = normalizeLevel(level);
+void ZigbeeLight::handleLightChange(bool state, uint8_t rawLevel) {
+  const uint8_t normalized = normalizeLevel(rawLevel);
   StateChangedCallback callback = nullptr;
-  const TaskHandle_t currentTask = xTaskGetCurrentTaskHandle();
-
+  uint8_t effectiveLevel = normalized;
   portENTER_CRITICAL(&mux_);
-
-  // setLightLevel() calls lightChanged() synchronously from the caller task.
-  // Ignore that self-generated callback: application shadow state already
-  // contains the intended remembered level, and processing it as an external
-  // command could erase a newer correction queued by the Zigbee task.
-  if (levelCorrectionTask_ != nullptr &&
-      currentTask == levelCorrectionTask_) {
-    portEXIT_CRITICAL(&mux_);
-    return;
-  }
-
-  ++levelCorrectionGeneration_;
-
-  // Some coordinators drive CurrentLevel to 0 with OFF. The Arduino Zigbee
-  // endpoint stores that zero before invoking this callback, so remember the
-  // last usable level for application state and queue an attribute correction
-  // for normal task context. Treat ON+0 the same way so a later ON command
-  // cannot resurrect the stale zero as a 1%/minimum brightness state.
-  if (level == 0) {
-    level = (level_ == 0 || level_ > ZIGBEE_MAX_LEVEL) ? DEFAULT_LEVEL : level_;
-    levelCorrection_ = level;
-    levelCorrectionPending_ = true;
-  } else {
-    // A real non-zero command supersedes any older zero-level correction.
-    levelCorrectionPending_ = false;
-  }
-
-  on_ = state;
-  level_ = level;
+  // Compute ON/OFF/zero transition without any ZCL write from this task.
+  const auto next = applyLightAttribute({on_, level_, rememberedLevel_},
+                                        state, normalized, DEFAULT_LEVEL);
+  effectiveLevel = next.level;
+  const bool onChanged = on_ != next.on;
+  const bool levelChanged = level_ != next.level;
+  on_ = next.on;
+  level_ = next.level;
+  rememberedLevel_ = next.rememberedLevel;
+  // Record only scalar data in the Zigbee callback. Serial logging is deferred
+  // to main loop to avoid blocking a stack callback.
+  lastTrace_ = {++traceSequence_, state, rawLevel, effectiveLevel,
+                onChanged, levelChanged};
   callback = stateChangedCallback_;
   portEXIT_CRITICAL(&mux_);
+  if (callback != nullptr) callback(state, effectiveLevel);
+}
 
-  if (callback != nullptr) callback(state, level);
+bool ZigbeeLight::readTrace(LightTrace &result, uint32_t &seenSequence) const {
+  portENTER_CRITICAL(&mux_);
+  if (lastTrace_.sequence == seenSequence) {
+    portEXIT_CRITICAL(&mux_);
+    return false;
+  }
+  result = lastTrace_;
+  seenSequence = lastTrace_.sequence;
+  portEXIT_CRITICAL(&mux_);
+  return true;
 }
 
 void ZigbeeLight::handleIdentify(uint16_t timeSeconds) {

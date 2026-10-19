@@ -11,7 +11,7 @@ WORKFLOW = (ROOT / ".github" / "workflows" / "firmware-ci.yml").read_text(
 class BuildReproducibilityTests(unittest.TestCase):
     def test_pioarduino_release_is_pinned(self):
         self.assertIn(
-            "releases/download/55.03.312/platform-espressif32.zip",
+            "releases/download/55.03.312-1/platform-espressif32.zip",
             INI,
         )
         self.assertNotIn("releases/download/stable/", INI)

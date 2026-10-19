@@ -26,7 +26,7 @@ class SprutBuildScriptTests(unittest.TestCase):
                 fake = base / "mock-pio"
                 fake.write_text('#!/bin/sh\ngrep -q DOOBSKY_TCLK_PRESTART "$PLATFORMIO_CORE_DIR/packages/framework-arduinoespressif32/libraries/Zigbee/src/ZigbeeCore.cpp"\n',encoding='ascii')
                 fake.chmod(0o755)
-            env = dict(os.environ, PLATFORMIO_CORE_DIR=str(base), PIO_EXE=str(fake))
+            env = dict(os.environ, PLATFORMIO_CORE_DIR=str(base), PIO_EXE=str(fake), DOOBSKY_BUILD_TEST_NO_FIRMWARE="1")
             call = subprocess.run([sys.executable, str(BUILD_SCRIPT)], cwd=ROOT, env=env, capture_output=True, text=True)
             self.assertEqual(call.returncode, 0, call.stdout + call.stderr)
             self.assertEqual(core.read_bytes(), before, "SDK was not restored byte-for-byte")

@@ -8,6 +8,8 @@ on:
       - main
       - 'feature/**'
       - 'audit/**'
+      - 'fix/**'
+      - 'diagnostics/**'
 
 permissions:
   contents: read
@@ -18,32 +20,29 @@ concurrency:
 
 jobs:
   test-and-build:
-    name: Tests + ESP32-H2 build
+    name: Regression tests and Sprut-compatible firmware
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
+    timeout-minutes: 25
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-
-      - name: Cache PlatformIO
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: ~/.platformio
           key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
-          restore-keys: |
-            ${{ runner.os }}-pio-
-
       - name: Install PlatformIO
         run: python -m pip install platformio==6.2.0
-
       - name: Run regression tests
-        run: python -m unittest discover -s tests -p "test_*.py" -v
-
-      - name: Build ESP32-H2 firmware
-        run: pio run -e esp32-h2-supermini-end-device
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Build Sprut.Hub-compatible firmware (mandatory pre-start TCLK patch)
+        run: python scripts/build_spruthub.py
+      - name: Upload firmware and provenance manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: doobsky-spruthub-firmware
+          path: |
+            .pio/build/esp32-h2-supermini-end-device/firmware.bin
+            build/firmware-manifest.json
+          if-no-files-found: error
