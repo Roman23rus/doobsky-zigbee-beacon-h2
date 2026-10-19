@@ -112,6 +112,8 @@ void applyRequestedState(uint32_t nowMs) {
 
   activeOn = newOn;
   activeLevel = newLevel;
+  Serial.printf("[LIGHT] applied on=%u level=%u changedOn=%u changedLevel=%u\n",
+                activeOn, activeLevel, onChanged, levelChanged);
 
   if (onChanged) prefsOnDirty = true;
   if (levelChanged) prefsLevelDirty = true;
@@ -229,7 +231,7 @@ void updateNetworkDiagnostics(uint32_t nowMs) {
                        diagLastStarted != started ||
                        diagLastConnected != connected;
   if (!changed && nowMs - diagLastNetMs < 30000U) return;
-  if (!backgroundWorkAllowed()) return;
+  // Network status must be visible even if optical safe-window detection is stuck.
   diagLastStarted = started;
   diagLastConnected = connected;
   diagNetworkKnown = true;
@@ -260,16 +262,22 @@ void requestCoordinatorProbe() {
   Serial.println("[ZDO-PING] sent NodeDescriptorRequest to coordinator 0x0000");
 }
 
+void localToggle();
+
 void executeDiagnosticCommand(const char *cmd) {
   if (!strcmp(cmd, "help") || !strcmp(cmd, "?")) {
-    Serial.println("[DIAG] Commands: status | battery | sample | report | ping | help");
+    Serial.println("[DIAG] Commands: status | battery | sample | report | ping | toggle | help");
   } else if (!strcmp(cmd, "status")) {
     printNetworkDiagnostics("serial");
     battery.printDiagnostics();
-    Serial.printf("[DIAG] EP2 state=%u level=%u engine=%u\n",
-                  zigbeeLight.on(), zigbeeLight.level(), activeOn);
+    Serial.printf("[DIAG] EP2 state=%u level=%u engine=%u engineLevel=%u buttonGPIO=%u darkSafe=%u pwmGPIO10=%u\n",
+                  zigbeeLight.on(), zigbeeLight.level(), activeOn, activeLevel,
+                  digitalRead(BOOT_BUTTON_PIN), beacon.isDarkWindowSafe(),
+                  ledcRead(MOSFET_PWM_PIN));
   } else if (!strcmp(cmd, "ping")) {
     requestCoordinatorProbe();
+  } else if (!strcmp(cmd, "toggle")) {
+    localToggle();
   } else if (!strcmp(cmd, "battery")) {
     battery.printDiagnostics();
   } else if (!strcmp(cmd, "sample")) {
@@ -303,7 +311,9 @@ void localToggle() {
   const bool next = !zigbeeLight.on();
   uint8_t level = zigbeeLight.level();
   if (level == 0) level = DEFAULT_LEVEL;
-  zigbeeLight.setLocalState(next, level);
+  Serial.printf("[BUTTON] toggle requested=%u level=%u\n", next, level);
+  const bool ok = zigbeeLight.setLocalState(next, level);
+  Serial.printf("[BUTTON] toggle ZCL accepted=%u newShadow=%u\n", ok, zigbeeLight.on());
 }
 
 void performFactoryReset() {
@@ -346,6 +356,9 @@ void updateButton(uint32_t nowMs) {
 
   if (button.stablePressed != button.rawPressed) {
     button.stablePressed = button.rawPressed;
+    Serial.printf("[BUTTON] stablePressed=%u GPIO9=%u uptimeMs=%lu\n",
+                  button.stablePressed, digitalRead(BOOT_BUTTON_PIN),
+                  static_cast<unsigned long>(nowMs));
     if (button.stablePressed) {
       button.pressedSinceMs = nowMs;
       button.longActionDone = false;
@@ -498,7 +511,7 @@ void setup() {
 
 void loop() {
   const uint32_t nowMs = millis();
-  if (backgroundWorkAllowed()) processDiagnosticSerial();
+  processDiagnosticSerial();  // non-blocking; must work even if optical task is not reaching dark windows
   updateNetworkDiagnostics(nowMs);
   zigbeeLight.service();
   applyRequestedState(nowMs);
