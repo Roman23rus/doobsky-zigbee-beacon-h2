@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "zigbee_build_id.h"
+#include "zcl/esp_zigbee_zcl_binary_input.h"
 
 using namespace BeaconConfig;
 
@@ -16,7 +17,8 @@ BatteryTelemetryEndpoint::BatteryTelemetryEndpoint(uint8_t endpoint)
   _ep_config.endpoint = endpoint;
   _ep_config.app_profile_id = ESP_ZB_AF_HA_PROFILE_ID;
   _ep_config.app_device_id = ESP_ZB_HA_SIMPLE_SENSOR_DEVICE_ID;
-  _ep_config.app_device_version = 0;
+  // HA Simple Sensor profile, descriptor revision 1.
+  _ep_config.app_device_version = 1;
 }
 
 bool BatteryTelemetryEndpoint::addBatteryPowerConfiguration(
@@ -32,6 +34,29 @@ bool BatteryTelemetryEndpoint::addBatteryPowerConfiguration(
   }
 
   if (!addDoobskyBuildId(basic)) return false;
+
+  // HA Simple Sensor 0x000C mandatory server clusters: Basic, Identify,
+  // Binary Input. Report whether the battery measurement is in-range.
+  // (This is NOT an assertion that a discharged battery is physically absent.)
+  esp_zb_binary_input_cluster_cfg_t input{};
+  input.out_of_service = false;
+  // Initial validity is derived from ZCL's unknown sentinel.
+  input.present_value = percentageRaw != BATTERY_ZCL_UNKNOWN;
+  input.status_flags = input.present_value ? 0U :
+      ESP_ZB_ZCL_BINARY_INPUT_STATUS_FLAG_FAULT;
+  auto *binary = esp_zb_binary_input_cluster_create(&input);
+  if (!binary || esp_zb_cluster_list_add_binary_input_cluster(
+          _cluster_list, binary, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE) != ESP_OK) {
+    return false;
+  }
+  // Simple Sensor also requires Identify client: no server-side IdentifyTime.
+  auto *identifyClient = esp_zb_zcl_attr_list_create(
+      ESP_ZB_ZCL_CLUSTER_ID_IDENTIFY);
+  if (!identifyClient || esp_zb_cluster_list_add_identify_cluster(
+          _cluster_list, identifyClient,
+          ESP_ZB_ZCL_CLUSTER_CLIENT_ROLE) != ESP_OK) {
+    return false;
+  }
 
   auto *power = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_POWER_CONFIG);
   if (!power) return false;
@@ -69,6 +94,19 @@ bool BatteryTelemetryEndpoint::setBatteryTelemetryRaw(
       &voltageRaw, false);
   return p == ESP_ZB_ZCL_STATUS_SUCCESS &&
          v == ESP_ZB_ZCL_STATUS_SUCCESS;
+}
+
+bool BatteryTelemetryEndpoint::setBatteryPresent(bool valid) {
+  uint8_t status = valid ? 0U :
+      ESP_ZB_ZCL_BINARY_INPUT_STATUS_FLAG_FAULT;
+  const auto valueStatus = setClusterAttribute(
+      ESP_ZB_ZCL_CLUSTER_ID_BINARY_INPUT, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+      ESP_ZB_ZCL_ATTR_BINARY_INPUT_PRESENT_VALUE_ID, &valid, false);
+  const auto flagsStatus = setClusterAttribute(
+      ESP_ZB_ZCL_CLUSTER_ID_BINARY_INPUT, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+      ESP_ZB_ZCL_ATTR_BINARY_INPUT_STATUS_FLAGS_ID, &status, false);
+  return valueStatus == ESP_ZB_ZCL_STATUS_SUCCESS &&
+         flagsStatus == ESP_ZB_ZCL_STATUS_SUCCESS;
 }
 
 BatteryTelemetry::BatteryTelemetry()
@@ -229,8 +267,9 @@ bool BatteryTelemetry::syncAttributes(uint32_t nowMs, bool force) {
   const bool dcAttrOk = endpoint_.setDCMeasurement(
       ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE,
       batteryDcVoltageZclRaw());
+  const bool presenceOk = endpoint_.setBatteryPresent(batteryValid_);
 
-  batteryAttributeSyncPending_ = !(batteryAttrsOk && dcAttrOk);
+  batteryAttributeSyncPending_ = !(batteryAttrsOk && dcAttrOk && presenceOk);
   static bool lastOk = false;
   const bool allOk = !batteryAttributeSyncPending_;
   if (force || allOk != lastOk) {

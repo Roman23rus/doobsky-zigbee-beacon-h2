@@ -15,6 +15,19 @@ bool BuildIdDimmableLight::addBuildId() {
       ESP_ZB_ZCL_CLUSTER_SERVER_ROLE));
 }
 
+bool BuildIdDimmableLight::setInitialBatteryPowerSource() {
+  auto *basic = esp_zb_cluster_list_get_cluster(
+      _cluster_list, ESP_ZB_ZCL_CLUSTER_ID_BASIC,
+      ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+  if (!basic) return false;
+  uint8_t source = static_cast<uint8_t>(ZB_POWER_SOURCE_BATTERY);
+  if (esp_zb_cluster_update_attr(
+          basic, ESP_ZB_ZCL_ATTR_BASIC_POWER_SOURCE_ID,
+          &source) != ESP_OK) return false;
+  _power_source = ZB_POWER_SOURCE_BATTERY;
+  return true;
+}
+
 ZigbeeLight *ZigbeeLight::instance_ = nullptr;
 
 ZigbeeLight::ZigbeeLight() : endpoint_(LIGHT_ENDPOINT) {}
@@ -34,7 +47,8 @@ bool ZigbeeLight::begin(bool initialOn, uint8_t initialLevel) {
   endpoint_.onIdentify(&ZigbeeLight::identifyThunk);
 
   if (!endpoint_.setManufacturerAndModel(MANUFACTURER, MODEL) ||
-      !endpoint_.addBuildId()) return false;
+      !endpoint_.addBuildId() ||
+      !endpoint_.setInitialBatteryPowerSource()) return false;
   endpoint_.setVersion(ZIGBEE_APP_VERSION);
   endpoint_.setHardwareVersion(ZIGBEE_HW_VERSION);
 
@@ -102,7 +116,9 @@ void ZigbeeLight::identifyThunk(uint16_t timeSeconds) {
 }
 
 void ZigbeeLight::handleLightChange(bool state, uint8_t rawLevel) {
-  const uint8_t normalized = normalizeLevel(rawLevel);
+  // Preserve inbound OFF+0 as a distinct ZCL event so last brightness survives.
+  // The strict 1..254 clamp applies only to local outbound setters.
+  const uint8_t normalized = (rawLevel == 0) ? 0 : normalizeLevel(rawLevel);
   StateChangedCallback callback = nullptr;
   uint8_t effectiveLevel = normalized;
   portENTER_CRITICAL(&mux_);
@@ -146,7 +162,11 @@ void ZigbeeLight::handleIdentify(uint16_t timeSeconds) {
 }
 
 uint8_t ZigbeeLight::normalizeLevel(uint8_t level) {
-  return (level == 0xFF || level > ZIGBEE_MAX_LEVEL) ? DEFAULT_LEVEL : level;
+  // CurrentLevel 0x00 and 0xFF are not valid user-settable dimming levels.
+  // Only outbound/local setters use this normalization; ZCL inbound values
+  // remain visible for diagnostics without unsafe SDK attribute rewrites.
+  return (level == 0 || level == 0xFF || level > ZIGBEE_MAX_LEVEL)
+      ? DEFAULT_LEVEL : level;
 }
 
 }  // namespace Doobsky

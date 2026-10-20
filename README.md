@@ -1,9 +1,30 @@
 # Doobsky Zigbee Beacon — ESP32-H2 SuperMini
 
 [![Firmware CI](https://github.com/Roman23rus/doobsky-zigbee-beacon-h2/actions/workflows/firmware-ci.yml/badge.svg)](https://github.com/Roman23rus/doobsky-zigbee-beacon-h2/actions/workflows/firmware-ci.yml)
-![Firmware](https://img.shields.io/badge/firmware-0.8.0--alpha.1-orange)
+![Firmware](https://img.shields.io/badge/firmware-0.9.0--alpha.1-orange)
 ![ESP32-H2](https://img.shields.io/badge/ESP32--H2-SuperMini-blue)
 ![Zigbee](https://img.shields.io/badge/Zigbee-3.0-EB0443)
+
+## Zigbee 3.0 conformance profiles (2026-10-20)
+
+Two explicit security profiles are provided. Zigbee 3.0 **strict** requires
+Trust Center Link Key renewal; **sprut** is a legacy compatibility exception
+for existing Sprut.Hub pairing. A successful build is not a Zigbee
+certification.
+
+Build commands:
+
+```bash
+python scripts/build_spruthub.py --profile strict
+python scripts/build_spruthub.py --profile sprut
+```
+
+A bare `pio run` deliberately fails closed. Artifacts are stored in separate
+PlatformIO environments; the original Arduino ZigbeeCore is always restored.
+**Never flash the strict image onto an existing Sprut.Hub joined node**
+without a planned commissioning test. See
+[conformance matrix](docs/zigbee3-conformance-20261020.md).
+
 ![PlatformIO](https://img.shields.io/badge/PlatformIO-pioarduino-F5822A)
 
 Прошивка для автономной 12-вольтовой LED-модели маяка Doobsky с характеристикой огня **Fl(3).W.16.5s**, управлением по **Zigbee 3.0**, контролем аккумулятора и плавной оптической огибающей вспышек.
@@ -58,7 +79,7 @@
 
 - ESP32-H2 SuperMini;
 - PlatformIO **6.2.0**;
-- pioarduino **55.03.312** / Arduino-ESP32 **3.3.12**;
+- pioarduino **55.03.312-1** / Arduino-ESP32 **3.3.12**;
 - Zigbee-координатор;
 - 12-вольтовый LED-модуль;
 - силовой ключ AO3400A;
@@ -67,13 +88,15 @@
 ### Сборка
 
 ```bash
-pio run -e esp32-h2-supermini-end-device
+python scripts/build_spruthub.py --profile sprut
 ```
 
 ### Прошивка
 
 ```bash
-pio run -e esp32-h2-supermini-end-device -t upload
+# For an existing paired device: preserve a full 4MB backup and Zigbee NVS.
+# Flash ONLY the app partition at 0x10000 after confirming chip and SHA256.
+# Do not use the factory image or automatic pio upload.
 ```
 
 ### Serial Monitor
@@ -214,7 +237,7 @@ pio device monitor -b 115200
 Проект использует PlatformIO с pioarduino:
 
 ```ini
-platform = https://github.com/pioarduino/platform-espressif32/releases/download/55.03.312/platform-espressif32.zip
+platform = https://github.com/pioarduino/platform-espressif32/releases/download/55.03.312-1/platform-espressif32.zip
 board = esp32-h2-devkitm-1
 framework = arduino
 ```
@@ -226,10 +249,12 @@ framework = arduino
 python -m unittest discover -s tests -p "test_*.py" -v
 
 # Сборка
-pio run -e esp32-h2-supermini-end-device
+python scripts/build_spruthub.py --profile sprut
 
 # Прошивка
-pio run -e esp32-h2-supermini-end-device -t upload
+# For an existing paired device: preserve a full 4MB backup and Zigbee NVS.
+# Flash ONLY the app partition at 0x10000 after confirming chip and SHA256.
+# Do not use the factory image or automatic pio upload.
 
 # Монитор
 pio device monitor -b 115200

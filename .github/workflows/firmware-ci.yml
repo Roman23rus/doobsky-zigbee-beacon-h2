@@ -19,10 +19,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-and-build:
-    name: Regression tests and Sprut-compatible firmware
+  conformance:
+    name: Zigbee 3.0 profile checks and dual firmware builds
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,18 +31,36 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
-      - name: Install PlatformIO
+          key: ${{ runner.os }}-pio-z3-${{ hashFiles('platformio.ini') }}
+      - name: Install pinned PlatformIO
         run: python -m pip install platformio==6.2.0
-      - name: Run regression tests
+      - name: Run conformance and regression tests
         run: python -m unittest discover -s tests -p 'test_*.py' -v
-      - name: Build Sprut.Hub-compatible firmware (mandatory pre-start TCLK patch)
-        run: python scripts/build_spruthub.py
-      - name: Upload firmware and provenance manifest
+      - name: Build Zigbee3 strict security profile
+        run: python scripts/build_spruthub.py --profile strict
+      - name: Build Sprut.Hub legacy Trust Center compatibility profile
+        run: python scripts/build_spruthub.py --profile sprut
+      - name: Assert distinct profiles and TCLK policies
+        run: |
+          python - <<'PY'
+          import json, pathlib, hashlib
+          root=pathlib.Path('.')
+          a=json.loads((root/'build/firmware-manifest-strict.json').read_text())
+          b=json.loads((root/'build/firmware-manifest-sprut.json').read_text())
+          assert a['profile']=='strict' and a['tclk_exchange_required'] is True
+          assert b['profile']=='sprut' and b['tclk_exchange_required'] is False
+          for name, report in [('esp32-h2-zigbee3-strict',a),('esp32-h2-supermini-end-device',b)]:
+              fw=(root/'.pio/build'/name/'firmware.bin').read_bytes()
+              assert report['firmware_sha256']==hashlib.sha256(fw).hexdigest()
+          assert a['firmware_sha256'] != b['firmware_sha256']
+          PY
+      - name: Publish both profiles and manifest evidence
         uses: actions/upload-artifact@v4
         with:
-          name: doobsky-spruthub-firmware
+          name: doobsky-zigbee3-strict-and-sprut-compat
           path: |
+            .pio/build/esp32-h2-zigbee3-strict/firmware.bin
             .pio/build/esp32-h2-supermini-end-device/firmware.bin
-            build/firmware-manifest.json
+            build/firmware-manifest-strict.json
+            build/firmware-manifest-sprut.json
           if-no-files-found: error

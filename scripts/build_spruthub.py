@@ -7,6 +7,7 @@ are restored even on build failure; the output manifest records provenance.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -22,16 +23,23 @@ PIO_HOME = Path(os.environ.get("PLATFORMIO_CORE_DIR")
                 or Path.home() / ".platformio")
 CORE = (PIO_HOME / "packages/framework-arduinoespressif32/libraries/"
         "Zigbee/src/ZigbeeCore.cpp")
-ENV_NAME = "esp32-h2-supermini-end-device"
+ENV_COMPAT = "esp32-h2-supermini-end-device"
+ENV_STRICT = "esp32-h2-zigbee3-strict"
 INCLUDE = '#include "ZigbeeCore.h"'
 INIT = "  esp_zb_init(zb_cfg);"
 PATCH_MARKER = "DOOBSKY_TCLK_PRESTART"
 PATCH = """  esp_zb_init(zb_cfg);
-#if defined(SPRUT_TC_COMPAT_MODE)
-  // DOOBSKY_TCLK_PRESTART: optional R21 Trust Center link key exchange.
-  // Zigbee NWK AES-128 is NOT disabled.
+#if defined(SPRUT_TC_COMPAT_MODE) && !defined(ZIGBEE3_STRICT_SECURITY)
+  // DOOBSKY_TCLK_PRESTART: compatibility only; no TCLK exchange requested.
+  // Zigbee NWK AES-128 remains enabled.
   esp_zb_secur_link_key_exchange_required_set(false);
-  log_w("[ZBSEC] optional TC link-key exchange disabled before stack start");
+  log_w("[ZBSEC] Sprut compatibility mode (TCLK exchange not required)");
+#elif defined(ZIGBEE3_STRICT_SECURITY) && !defined(SPRUT_TC_COMPAT_MODE)
+  // DOOBSKY_TCLK_PRESTART: strict Zigbee3 join requires TCLK update.
+  esp_zb_secur_link_key_exchange_required_set(true);
+  log_i("[ZBSEC] Zigbee3 strict mode (TCLK exchange required)");
+#else
+#error "Exactly one Zigbee security profile must be selected"
 #endif"""
 
 
@@ -45,8 +53,14 @@ def run(cmd: list[str], **kwargs) -> int:
 
 
 def main() -> int:
-    if "-D SPRUT_TC_COMPAT_MODE" not in (ROOT / "platformio.ini").read_text(encoding="utf-8-sig"):
-        raise RuntimeError("Sprut build define is missing")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--profile", choices=("strict", "sprut"), default="strict")
+    args = parser.parse_args()
+    env_name = ENV_STRICT if args.profile == "strict" else ENV_COMPAT
+    ini = (ROOT / "platformio.ini").read_text(encoding="utf-8-sig")
+    macro = "-D ZIGBEE3_STRICT_SECURITY" if args.profile == "strict" else "-D SPRUT_TC_COMPAT_MODE"
+    if macro not in ini:
+        raise RuntimeError("Required security profile build define is missing")
     core_home = PIO_HOME / "packages"
     exe = os.environ.get("PIO_EXE")
     if not exe:
@@ -54,7 +68,7 @@ def main() -> int:
         exe = str(candidate) if candidate.is_file() else "pio"
     if not CORE.exists():
         print("Installing PlatformIO environment packages...", flush=True)
-        result = run([exe, "pkg", "install", "-e", ENV_NAME])
+        result = run([exe, "pkg", "install", "-e", env_name])
         if result:
             return result
     if not CORE.exists():
@@ -84,7 +98,8 @@ def main() -> int:
             CORE.write_bytes(patch_bytes)
             build_env = dict(os.environ)
             build_env["DOOBSKY_SPRUT_PATCH_APPLIED"] = "1"
-            code = run([exe, "run", "-e", ENV_NAME], env=build_env)
+            build_env["DOOBSKY_ZIGBEE_PROFILE"] = args.profile
+            code = run([exe, "run", "-e", env_name], env=build_env)
         finally:
             CORE.write_bytes(original)
             if CORE.read_bytes() != original:
@@ -96,7 +111,7 @@ def main() -> int:
         return code
     if os.environ.get("DOOBSKY_BUILD_TEST_NO_FIRMWARE") == "1":
         return 0  # Mocked pio command in isolated unit test only.
-    fw = ROOT / ".pio/build" / ENV_NAME / "firmware.bin"
+    fw = ROOT / ".pio/build" / env_name / "firmware.bin"
     if not fw.is_file():
         raise RuntimeError("Build reported success but firmware.bin is absent")
     def get_version(package: str) -> str:
@@ -114,10 +129,11 @@ def main() -> int:
     except Exception:
         git_sha = "unknown"
     result = {
-        "profile": "spruthub-prestart-tclk-optional",
+        "profile": args.profile,
+        "tclk_exchange_required": args.profile == "strict",
         "firmware_version": m.group(1) if m else "unknown",
         "git_revision": git_sha,
-        "pio_environment": ENV_NAME,
+        "pio_environment": env_name,
         "platformio_core": subprocess.run([exe,"--version"],capture_output=True,text=True).stdout.strip(),
         "arduino_framework": get_version("framework-arduinoespressif32"),
         "platform": "pioarduino 55.03.312-1",
@@ -129,7 +145,7 @@ def main() -> int:
         "build_utc": datetime.now(timezone.utc).isoformat(),
         "flash_or_nvs_modified": False,
     }
-    dest=ROOT/"build/firmware-manifest.json"
+    dest=ROOT/"build"/f"firmware-manifest-{args.profile}.json"
     dest.parent.mkdir(parents=True,exist_ok=True)
     dest.write_text(json.dumps(result,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
     print("Built", fw, "\nSHA256:",result["firmware_sha256"],"\nManifest:",dest,flush=True)

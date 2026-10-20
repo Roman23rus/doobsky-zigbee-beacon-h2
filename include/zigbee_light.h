@@ -11,6 +11,7 @@ class BuildIdDimmableLight : public ZigbeeDimmableLight {
 public:
   using ZigbeeDimmableLight::ZigbeeDimmableLight;
   bool addBuildId();
+  bool setInitialBatteryPowerSource();
 };
 
 class ZigbeeLight {
