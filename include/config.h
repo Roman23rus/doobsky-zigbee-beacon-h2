@@ -7,7 +7,14 @@ namespace BeaconConfig {
 // -----------------------------------------------------------------------------
 // Firmware identity
 // -----------------------------------------------------------------------------
-inline constexpr char FW_VERSION[] = "0.8.3-beta.2-sprut";
+inline constexpr char FW_VERSION[] = "0.9.0-alpha.1";
+#if defined(ZIGBEE3_STRICT_SECURITY)
+inline constexpr char ZCL_SW_BUILD_ID[] = "0.9.0-z3-strict";
+#elif defined(SPRUT_TC_COMPAT_MODE)
+inline constexpr char ZCL_SW_BUILD_ID[] = "0.9.0-z3-sprut";
+#else
+#error "Select Zigbee3 strict or Sprut compatibility security profile"
+#endif
 inline constexpr char MANUFACTURER[] = "Doobsky";
 inline constexpr char MODEL[] = "DBL-01";
 inline constexpr uint8_t BATTERY_SENSOR_ENDPOINT = 1;
