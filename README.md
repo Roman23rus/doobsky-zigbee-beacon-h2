@@ -15,8 +15,8 @@ certification.
 Build commands:
 
 ```bash
-python scripts/build_spruthub.py --profile strict
-python scripts/build_spruthub.py --profile sprut
+python scripts/build_firmware.py --profile strict
+python scripts/build_firmware.py --profile sprut
 ```
 
 A bare `pio run` deliberately fails closed. Artifacts are stored in separate
@@ -58,7 +58,7 @@ without a planned commissioning test. See
 ## Возможности
 
 - Zigbee 3.0 в роли **End Device** — устройство не маршрутизирует трафик других узлов.
-- EP1 — стандартный Zigbee HA **Meter Interface** для телеметрии аккумулятора.
+- EP1 — стандартный Zigbee HA **Simple Sensor** для телеметрии аккумулятора.
 - EP2 — стандартный Zigbee HA **Dimmable Light** для управления маяком.
 - Только стандартные HA/ZCL-кластеры, без manufacturer-specific расширений и подмены чужих моделей.
 - `ON` запускает локальный цикл **Fl(3).W.16.5s** без накопления временного дрейфа.
@@ -88,7 +88,7 @@ without a planned commissioning test. See
 ### Сборка
 
 ```bash
-python scripts/build_spruthub.py --profile sprut
+python scripts/build_firmware.py --profile sprut
 ```
 
 ### Прошивка
@@ -146,11 +146,13 @@ pio device monitor -b 115200
 
 ## Zigbee-архитектура
 
-### EP1 — Battery Meter Interface
+### EP1 — Battery Simple Sensor
 
 - профиль: `0x0104`;
-- устройство: `0x0053`;
+- устройство: `0x000C`;
 - модель: `Doobsky / DBL-BAT`;
+- Basic `0x0000` and Identify `0x0003` (server/client);
+- Binary Input `0x000F` (battery sample validity);
 - Power Configuration `0x0001`;
 - Electrical Measurement `0x0B04`;
 - `BatteryVoltage`;
@@ -249,7 +251,7 @@ framework = arduino
 python -m unittest discover -s tests -p "test_*.py" -v
 
 # Сборка
-python scripts/build_spruthub.py --profile sprut
+python scripts/build_firmware.py --profile sprut
 
 # Прошивка
 # For an existing paired device: preserve a full 4MB backup and Zigbee NVS.
@@ -321,6 +323,6 @@ SprutHub, ZHA, Zigbee2MQTT и другие координаторы могут �
 
 Текущая версия прошивки:
 
-**`0.8.0-alpha.1`**
+**`0.9.0-alpha.2`**
 
 История изменений ведётся в [CHANGELOG.md](CHANGELOG.md).

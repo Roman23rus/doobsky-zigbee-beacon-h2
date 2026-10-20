@@ -16,13 +16,13 @@ class ZdoPowerDescriptorTests(unittest.TestCase):
     def test_zigbee_descriptor_calls_are_guarded_from_application_loop(self):
         self.assertIn("esp_zb_lock_acquire(pdMS_TO_TICKS(10))", MAIN)
         self.assertIn("esp_zb_lock_release()", MAIN)
-        self.assertIn("esp_zb_lock_acquire(pdMS_TO_TICKS(10))", LIGHT_CPP)
-        self.assertIn("esp_zb_lock_release()", LIGHT_CPP)
+        self.assertIn("setInitialBatteryPowerSource", LIGHT_CPP)
         self.assertIn("syncZigbeePowerDescriptors();", MAIN)
         self.assertIn("if (!esp_zb_lock_acquire(pdMS_TO_TICKS(10))) return;", MAIN)
 
     def test_light_basic_power_source_matches_physical_node(self):
-        self.assertIn("setBasicPowerSourceBattery", LIGHT_H)
+        self.assertNotIn("setBasicPowerSourceBattery", LIGHT_H)
+        self.assertIn("setInitialBatteryPowerSource", LIGHT_H)
         self.assertIn("ESP_ZB_ZCL_ATTR_BASIC_POWER_SOURCE_ID", LIGHT_CPP)
         self.assertIn("ZB_POWER_SOURCE_BATTERY", LIGHT_CPP)
 

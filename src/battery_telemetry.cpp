@@ -116,9 +116,8 @@ bool BatteryTelemetry::configureEndpoint() {
   pinMode(BATTERY_ADC_PIN, INPUT);
   analogReadResolution(12);
 
-  // Prime the measurements before Zigbee can be interviewed by Sprut.Hub.
-  // Previously EP1 began with 0xFF/0x8000 and a hub could cache unknown values.
-  // Optical engine work is not running in this initialization phase.
+  // Measure before registering Zigbee endpoints, before optical work starts,
+  // to expose valid ADC readings on the first coordinator interview.
   beginSample();
   while (sampler_.active) {
     serviceSample(millis());

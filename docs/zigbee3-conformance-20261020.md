@@ -12,11 +12,11 @@ as normal Zigbee 3.0 security:
 | Build | PlatformIO env | TCLK exchange |
 |---|---|---|
 | Zigbee 3.0 strict (default) | esp32-h2-zigbee3-strict | REQUIRED (true) |
-| Sprut.Hub backward-compatible | esp32-h2-supermini-end-device | NOT required (false) |
+| Sprut.Hub backward-compatible | esp32-h2-sprut-compat | NOT required (false) |
 
 Build:
-    python scripts/build_spruthub.py --profile strict
-    python scripts/build_spruthub.py --profile sprut
+    python scripts/build_firmware.py --profile strict
+    python scripts/build_firmware.py --profile sprut
 
 The wrapper patches ZigbeeCore **after esp_zb_init and before esp_zb_start**,
 then restores its original bytes. GitHub Actions independently builds both.
@@ -48,7 +48,7 @@ EP2 / HA profile 0x0104 / Dimmable Light 0x0101:
 - Mandatory SERVER clusters 0x0000 Basic, 0x0003 Identify, 0x0004 Groups,
   0x0005 Scenes, 0x0006 OnOff, 0x0008 Level Control, provided by the
   stock Arduino ZigbeeDimmableLight implementation.
-- Application device version = 1; local dimmer range 1..254;
+- Application device version = 2; local dimmer range 1..254;
   no background CurrentLevel corrective write that could overwrite OnOff.
 - Basic PowerSource = battery set **before endpoint registration**, consistent
   with EP1's battery Basic value. RxOnWhenIdle = true despite rechargeable
@@ -60,27 +60,14 @@ ZDO Power Descriptor: rechargeable battery, RX on when idle, power level
 bands 0/33/66/100 derived from sampled battery. Numeric Level 0xFF and
 DCVoltage 0x8000 are ZCL 'unknown', not zero or full charge.
 
-## Install codes and remaining security requirements
+## DIY commissioning and security limitations
 
-Zigbee 3.0 joining devices must support install codes. Offline helper:
-
-    python scripts/generate_install_code.py
-
-It uses a cryptographic random 128-bit secret, X25 CRC16 (reflected CCITT,
-init 0xFFFF, final XOR 0xFFFF), CRC little-endian. A known published
-Silicon Labs test vector is covered by unit tests. This command DOES NOT
-program the device. Install codes are secrets: NEVER commit them, log them
-or share them publicly.
-
-For a production device, provision that install code using the ESP-Zigbee
-SDK's manufacturing partition/toolchain or secure per-device provisioning
-API. Ensure the device actually loads the code before a factory-new join,
-mark the unique device with the code and IEEE EUI64, and register it with
-the Trust Center. The current runtime has NOT yet been tested with an
-install-code-required coordinator, so this feature cannot be certified yet.
-
-A CSA-assigned manufacturer code (currently unspecified, do not invent)
-and Zigbee 3.0 certification testing are also still outstanding.
+This is a self-built device for personal use with a known home coordinator.
+No factory provisioning or generated Install Code script is bundled.
+The firmware currently does NOT implement per-device install-code
+provisioning and must not claim full Zigbee 3.0 certification.
+Use the strict TCLK-security mode only with a compatible Trust Center;
+use the compatibility mode when required for existing Sprut.Hub pairing.
 
 ## To finish Zigbee 3.0 compliance testing
 

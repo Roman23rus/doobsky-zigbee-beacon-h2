@@ -6,10 +6,10 @@ from pathlib import Path
 Import("env")
 mode = os.environ.get("DOOBSKY_ZIGBEE_PROFILE")
 expected = ("strict" if env["PIOENV"] == "esp32-h2-zigbee3-strict"
-            else "sprut" if env["PIOENV"] == "esp32-h2-supermini-end-device"
+            else "sprut" if env["PIOENV"] == "esp32-h2-sprut-compat"
             else None)
-if expected is None or mode != expected or os.environ.get("DOOBSKY_SPRUT_PATCH_APPLIED") != "1":
-    raise RuntimeError("Use python scripts/build_spruthub.py --profile strict|sprut; plain pio run is blocked")
+if expected is None or mode != expected or os.environ.get("DOOBSKY_PROFILE_PATCH_APPLIED") != "1":
+    raise RuntimeError("Use python scripts/build_firmware.py --profile strict|sprut; plain pio run is blocked")
 home = Path(os.environ.get("PLATFORMIO_CORE_DIR") or
             os.environ.get("PLATFORMIO_HOME_DIR") or Path.home() / ".platformio")
 core = home / "packages/framework-arduinoespressif32/libraries/Zigbee/src/ZigbeeCore.cpp"

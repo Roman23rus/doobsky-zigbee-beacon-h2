@@ -1,3 +1,5 @@
+> **Historical reference — not current build instructions.** For active firmware see README.md and docs/zigbee3-conformance-20261020.md. Obsolete TEST and POWER-EXPERIMENT templates were removed from the active tree.
+
 # Sprut.Hub / ESP32-H2 — commissioning compatibility fix (2026-10-19)
 
 ## Root-cause assessment

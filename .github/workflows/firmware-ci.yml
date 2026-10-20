@@ -37,9 +37,9 @@ jobs:
       - name: Run conformance and regression tests
         run: python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Build Zigbee3 strict security profile
-        run: python scripts/build_spruthub.py --profile strict
+        run: python scripts/build_firmware.py --profile strict
       - name: Build Sprut.Hub legacy Trust Center compatibility profile
-        run: python scripts/build_spruthub.py --profile sprut
+        run: python scripts/build_firmware.py --profile sprut
       - name: Assert distinct profiles and TCLK policies
         run: |
           python - <<'PY'
@@ -49,7 +49,7 @@ jobs:
           b=json.loads((root/'build/firmware-manifest-sprut.json').read_text())
           assert a['profile']=='strict' and a['tclk_exchange_required'] is True
           assert b['profile']=='sprut' and b['tclk_exchange_required'] is False
-          for name, report in [('esp32-h2-zigbee3-strict',a),('esp32-h2-supermini-end-device',b)]:
+          for name, report in [('esp32-h2-zigbee3-strict',a),('esp32-h2-sprut-compat',b)]:
               fw=(root/'.pio/build'/name/'firmware.bin').read_bytes()
               assert report['firmware_sha256']==hashlib.sha256(fw).hexdigest()
           assert a['firmware_sha256'] != b['firmware_sha256']
@@ -60,7 +60,7 @@ jobs:
           name: doobsky-zigbee3-strict-and-sprut-compat
           path: |
             .pio/build/esp32-h2-zigbee3-strict/firmware.bin
-            .pio/build/esp32-h2-supermini-end-device/firmware.bin
+            .pio/build/esp32-h2-sprut-compat/firmware.bin
             build/firmware-manifest-strict.json
             build/firmware-manifest-sprut.json
           if-no-files-found: error
