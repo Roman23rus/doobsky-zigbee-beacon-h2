@@ -7,6 +7,7 @@ BEACON_CPP_PATH = ROOT / "src" / "beacon_engine.cpp"
 BEACON_H_PATH = ROOT / "include" / "beacon_engine.h"
 ZIGBEE_CPP_PATH = ROOT / "src" / "zigbee_light.cpp"
 MAIN_PATH = ROOT / "src" / "main.cpp"
+CONFIG_PATH = ROOT / "include" / "config.h"
 
 
 def read(path: pathlib.Path) -> str:
@@ -44,7 +45,9 @@ class ArchitectureIsolationTests(unittest.TestCase):
 
     def test_always_on_rx_is_explicit_before_begin(self):
         source = read(ZIGBEE_CPP_PATH) + "\n" + read(MAIN_PATH)
-        rx = source.find("Zigbee.setRxOnWhenIdle(true)")
+        config = read(CONFIG_PATH)
+        self.assertIn("ZIGBEE_RX_ON_WHEN_IDLE = true", config)
+        rx = source.find("Zigbee.setRxOnWhenIdle(ZIGBEE_RX_ON_WHEN_IDLE)")
         begin = source.find("Zigbee.begin(")
         self.assertGreaterEqual(rx, 0)
         self.assertGreater(begin, rx)

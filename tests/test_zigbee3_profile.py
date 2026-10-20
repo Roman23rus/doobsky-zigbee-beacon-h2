@@ -11,7 +11,7 @@ ALL_SOURCE = MAIN + BATTERY_H + BATTERY_CPP
 
 class Zigbee3ProfileTests(unittest.TestCase):
     def test_version_and_endpoint_order(self):
-        self.assertIn('FW_VERSION[] = "0.8.0-alpha.1"', CFG)
+        self.assertIn('FW_VERSION[] = "0.8.3-beta.2-sprut"', CFG)
         self.assertIn('BATTERY_SENSOR_ENDPOINT = 1', CFG)
         self.assertIn('LIGHT_ENDPOINT = 2', CFG)
 
@@ -19,9 +19,10 @@ class Zigbee3ProfileTests(unittest.TestCase):
         for token in ('LUMI', 'YNDX-', 'lumi.', 'ZigbeeContactSwitch', 'ZigbeeTempSensor'):
             self.assertNotIn(token, ALL_SOURCE)
 
-    def test_battery_is_standard_meter_interface(self):
+    def test_battery_is_standard_simple_sensor(self):
         self.assertIn('class BatteryTelemetryEndpoint : public ZigbeeElectricalMeasurement', BATTERY_H)
-        self.assertIn('ESP_ZB_HA_METER_INTERFACE_DEVICE_ID', BATTERY_CPP)
+        self.assertIn('ESP_ZB_HA_SIMPLE_SENSOR_DEVICE_ID', BATTERY_CPP)
+        self.assertNotIn('ESP_ZB_HA_METER_INTERFACE_DEVICE_ID', BATTERY_CPP)
         self.assertIn('ESP_ZB_AF_HA_PROFILE_ID', BATTERY_CPP)
 
 

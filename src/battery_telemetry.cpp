@@ -1,6 +1,7 @@
 #include "battery_telemetry.h"
 
 #include "config.h"
+#include "zigbee_build_id.h"
 
 using namespace BeaconConfig;
 
@@ -11,10 +12,10 @@ static constexpr int16_t DC_VOLTAGE_UNKNOWN = INT16_MIN;
 
 BatteryTelemetryEndpoint::BatteryTelemetryEndpoint(uint8_t endpoint)
     : ZigbeeElectricalMeasurement(endpoint) {
-  _device_id = ESP_ZB_HA_METER_INTERFACE_DEVICE_ID;
+  _device_id = ESP_ZB_HA_SIMPLE_SENSOR_DEVICE_ID;
   _ep_config.endpoint = endpoint;
   _ep_config.app_profile_id = ESP_ZB_AF_HA_PROFILE_ID;
-  _ep_config.app_device_id = ESP_ZB_HA_METER_INTERFACE_DEVICE_ID;
+  _ep_config.app_device_id = ESP_ZB_HA_SIMPLE_SENSOR_DEVICE_ID;
   _ep_config.app_device_version = 0;
 }
 
@@ -29,6 +30,8 @@ bool BatteryTelemetryEndpoint::addBatteryPowerConfiguration(
           basic, ESP_ZB_ZCL_ATTR_BASIC_POWER_SOURCE_ID, &source) != ESP_OK) {
     return false;
   }
+
+  if (!addDoobskyBuildId(basic)) return false;
 
   auto *power = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_POWER_CONFIG);
   if (!power) return false;
@@ -75,6 +78,17 @@ bool BatteryTelemetry::configureEndpoint() {
   pinMode(BATTERY_ADC_PIN, INPUT);
   analogReadResolution(12);
 
+  // Prime the measurements before Zigbee can be interviewed by Sprut.Hub.
+  // Previously EP1 began with 0xFF/0x8000 and a hub could cache unknown values.
+  // Optical engine work is not running in this initialization phase.
+  beginSample();
+  while (sampler_.active) {
+    serviceSample(millis());
+  }
+  Serial.printf("[BAT] preload=%umV valid=%u pct=%u ZCLpct=%u ZCLvoltage=%u\n",
+                batteryMv_, batteryValid_, batteryPercent_,
+                batteryPercentageZclRaw(), batteryVoltageZclRaw());
+
   if (!endpoint_.addDCMeasurement(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE) ||
       !endpoint_.setDCMultiplierDivisor(
           ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE, 1, 1000) ||
@@ -84,32 +98,24 @@ bool BatteryTelemetry::configureEndpoint() {
     return false;
   }
   if (!endpoint_.addBatteryPowerConfiguration(
-          BATTERY_ZCL_UNKNOWN, BATTERY_ZCL_UNKNOWN) ||
+          batteryPercentageZclRaw(), batteryVoltageZclRaw()) ||
       !endpoint_.setManufacturerAndModel(MANUFACTURER, "DBL-BAT")) {
     return false;
   }
 
   endpoint_.setVersion(ZIGBEE_APP_VERSION);
   endpoint_.setHardwareVersion(ZIGBEE_HW_VERSION);
-  sampler_.active = true;
-  sampler_.sumMv = 0;
-  sampler_.samples = 0;
+  sampler_.active = false;
   return true;
 }
 
 bool BatteryTelemetry::startRuntime() {
-  if (!endpoint_.setBatteryTelemetryRaw(
-          batteryPercentageZclRaw(), batteryVoltageZclRaw())) {
-    return false;
-  }
-  if (!endpoint_.setDCMeasurement(
-          ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE,
-          batteryDcVoltageZclRaw())) {
-    return false;
-  }
+  // Runtime sampling should continue even if one initial Zigbee attribute
+  // operation fails transiently. Attribute synchronization is retried later
+  // and reports are never sent until the local attributes are current.
   runtimeStarted_ = true;
-  return endpoint_.setDCReporting(
-      ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE, 0, 300, 20);
+  batteryAttributeSyncPending_ = true;
+  return syncAttributes(millis(), true);
 }
 
 ZigbeeEP *BatteryTelemetry::endpoint() {
@@ -144,10 +150,20 @@ uint8_t BatteryTelemetry::batteryPercentFromMv(uint16_t mv) {
 
 uint16_t BatteryTelemetry::batteryMvFromAdcSum(
     uint32_t sumMv, uint8_t samples) {
-  const float adcMv = static_cast<float>(sumMv) / samples;
-  const float scaledMv =
-      adcMv * BATTERY_DIVIDER_RATIO * BATTERY_CALIBRATION;
-  return static_cast<uint16_t>(scaledMv + 0.5f);
+  if (samples == 0) return 0;
+
+  // Fixed-point arithmetic avoids pulling floating-point work into the
+  // low-frequency battery path on the RISC-V ESP32-H2.
+  const uint64_t numerator =
+      static_cast<uint64_t>(sumMv) *
+      BATTERY_DIVIDER_NUMERATOR *
+      BATTERY_CALIBRATION_PERMILLE;
+  const uint64_t denominator =
+      static_cast<uint64_t>(samples) *
+      BATTERY_DIVIDER_DENOMINATOR *
+      1000ULL;
+  return static_cast<uint16_t>(
+      (numerator + denominator / 2ULL) / denominator);
 }
 
 uint8_t BatteryTelemetry::zigbeeBatteryVoltage(uint16_t mv) {
@@ -190,9 +206,59 @@ bool BatteryTelemetry::serviceSample(uint32_t nowMs) {
   batteryValid_ = batteryMv_ >= BATTERY_VALID_MIN_MV &&
                   batteryMv_ <= BATTERY_VALID_MAX_MV;
   batteryPercent_ = batteryValid_ ? batteryPercentFromMv(batteryMv_) : 0;
+  Serial.printf("[BAT] sample=%umV valid=%u pct=%u rawPct=%u rawVoltage=%u rawDC=%d\n",
+                batteryMv_, batteryValid_, batteryPercent_,
+                batteryPercentageZclRaw(), batteryVoltageZclRaw(),
+                batteryDcVoltageZclRaw());
   lastBatterySampleMs_ = nowMs;
   batteryTelemetryDirty_ = true;
+  batteryAttributeSyncPending_ = true;
   return true;
+}
+
+bool BatteryTelemetry::syncAttributes(uint32_t nowMs, bool force) {
+  if (!batteryAttributeSyncPending_) return true;
+  if (!force &&
+      (nowMs - lastBatteryAttributeAttemptMs_) < BATTERY_REPORT_RETRY_MS) {
+    return false;
+  }
+
+  lastBatteryAttributeAttemptMs_ = nowMs;
+  const bool batteryAttrsOk = endpoint_.setBatteryTelemetryRaw(
+      batteryPercentageZclRaw(), batteryVoltageZclRaw());
+  const bool dcAttrOk = endpoint_.setDCMeasurement(
+      ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE,
+      batteryDcVoltageZclRaw());
+
+  batteryAttributeSyncPending_ = !(batteryAttrsOk && dcAttrOk);
+  static bool lastOk = false;
+  const bool allOk = !batteryAttributeSyncPending_;
+  if (force || allOk != lastOk) {
+    Serial.printf("[ZCL] sync EP1 PowerConfiguration=%u DCVoltage=%u value=%umV percent=%u\n",
+                  batteryAttrsOk, dcAttrOk, batteryMv_, batteryPercent_);
+  }
+  lastOk = allOk;
+  return allOk;
+}
+
+bool BatteryTelemetry::needsService(uint32_t nowMs) const {
+  if (!runtimeStarted_) return false;
+  if (sampler_.active) return true;
+
+  if ((nowMs - lastBatterySampleMs_) >= BATTERY_SAMPLE_INTERVAL_MS) {
+    return true;
+  }
+
+  if (batteryAttributeSyncPending_) {
+    return (nowMs - lastBatteryAttributeAttemptMs_) >=
+           BATTERY_REPORT_RETRY_MS;
+  }
+
+  const bool periodic =
+      (nowMs - lastBatteryReportMs_) >= BATTERY_REPORT_INTERVAL_MS;
+  if (!batteryTelemetryDirty_ && !periodic) return false;
+
+  return (nowMs - lastBatteryReportAttemptMs_) >= BATTERY_REPORT_RETRY_MS;
 }
 
 void BatteryTelemetry::service(uint32_t nowMs, bool backgroundAllowed) {
@@ -203,12 +269,11 @@ void BatteryTelemetry::service(uint32_t nowMs, bool backgroundAllowed) {
     beginSample();
   }
 
-  if (serviceSample(nowMs)) {
-    endpoint_.setBatteryTelemetryRaw(
-        batteryPercentageZclRaw(), batteryVoltageZclRaw());
-    endpoint_.setDCMeasurement(
-        ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE,
-        batteryDcVoltageZclRaw());
+  const bool sampleCompleted = serviceSample(nowMs);
+  if (sampleCompleted) {
+    if (!syncAttributes(nowMs, true)) return;
+  } else if (batteryAttributeSyncPending_) {
+    if (!syncAttributes(nowMs, false)) return;
   }
 
   const bool periodic =
@@ -216,7 +281,15 @@ void BatteryTelemetry::service(uint32_t nowMs, bool backgroundAllowed) {
   if (!batteryTelemetryDirty_ && !periodic) return;
   if ((nowMs - lastBatteryReportAttemptMs_) < BATTERY_REPORT_RETRY_MS) return;
   lastBatteryReportAttemptMs_ = nowMs;
-  if (!Zigbee.connected()) return;
+  if (!Zigbee.connected()) {
+    static uint32_t lastNotConnectedLog = 0;
+    if (lastNotConnectedLog == 0 ||
+        nowMs - lastNotConnectedLog >= 30000U) {
+      Serial.println("[ZCL] reporting deferred: Zigbee.connected() is false");
+      lastNotConnectedLog = nowMs;
+    }
+    return;
+  }
 
   bool changed = !batteryReportInitialized_ ||
                  (batteryValid_ != lastReportedBatteryValid_);
@@ -237,10 +310,20 @@ void BatteryTelemetry::service(uint32_t nowMs, bool backgroundAllowed) {
     return;
   }
 
+  // Power Configuration BatteryVoltage is readable but is not a reportable
+  // attribute in Arduino-ESP32/ZCL. Report percentage from Power
+  // Configuration and precise voltage through Electrical Measurement DCVoltage.
   const bool pctOk = endpoint_.reportBatteryPercentage();
-  const bool voltOk =
+  const bool dcVoltOk =
       endpoint_.reportDC(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE);
-  if (!(pctOk && voltOk)) return;
+  static uint32_t lastReportLog = 0;
+  if (pctOk && dcVoltOk || lastReportLog == 0 ||
+      nowMs - lastReportLog >= 15000U) {
+    Serial.printf("[ZCL] report EP1 BatteryPercentage=%u DCVoltage=%u value=%umV pct=%u\n",
+                  pctOk, dcVoltOk, batteryMv_, batteryPercent_);
+    lastReportLog = nowMs;
+  }
+  if (!(pctOk && dcVoltOk)) return;
 
   lastReportedBatteryPercent_ = batteryPercent_;
   lastReportedBatteryMv_ = batteryMv_;
@@ -248,6 +331,34 @@ void BatteryTelemetry::service(uint32_t nowMs, bool backgroundAllowed) {
   batteryReportInitialized_ = true;
   batteryTelemetryDirty_ = false;
   lastBatteryReportMs_ = nowMs;
+}
+
+void BatteryTelemetry::printDiagnostics() const {
+  Serial.printf("[DIAG] EP1 BAT valid=%u mv=%u pct=%u attrPending=%u "
+                "reportInit=%u dirty=%u sampleMs=%lu reportMs=%lu "
+                "reportAttemptMs=%lu\n",
+                batteryValid_, batteryMv_, batteryPercent_,
+                batteryAttributeSyncPending_, batteryReportInitialized_,
+                batteryTelemetryDirty_,
+                static_cast<unsigned long>(lastBatterySampleMs_),
+                static_cast<unsigned long>(lastBatteryReportMs_),
+                static_cast<unsigned long>(lastBatteryReportAttemptMs_));
+  Serial.printf("[DIAG] EP1 ZCL 0001/0020=%u 0001/0021=%u 0B04/0100=%d "
+                "scale=1/1000\n",
+                batteryVoltageZclRaw(), batteryPercentageZclRaw(),
+                batteryDcVoltageZclRaw());
+}
+
+void BatteryTelemetry::requestImmediateReport() {
+  batteryTelemetryDirty_ = true;
+  batteryReportInitialized_ = false;
+  lastBatteryReportAttemptMs_ = millis() - BATTERY_REPORT_RETRY_MS;
+  Serial.println("[DIAG] Manual battery report requested");
+}
+
+void BatteryTelemetry::requestImmediateSample() {
+  beginSample();
+  Serial.println("[DIAG] Manual battery sample requested");
 }
 
 }  // namespace Doobsky
