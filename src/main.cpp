@@ -191,6 +191,15 @@ uint32_t diagLastNetMs = 0;
 char diagCommandBuffer[32] = {};
 uint8_t diagCommandLength = 0;
 
+portMUX_TYPE zdoMux = portMUX_INITIALIZER_UNLOCKED;
+struct ZdoResult {
+  uint32_t sequence = 0;
+  uint16_t address = 0;
+  uint8_t status = 0;
+  bool descriptorPresent = false;
+} zdoReply;
+uint32_t zdoSeenSequence = 0;
+
 void printNetworkDiagnostics(const char *reason) {
   const bool started = Zigbee.started();
   const bool connected = Zigbee.connected();
@@ -221,6 +230,9 @@ void updateNetworkDiagnostics(uint32_t nowMs) {
                        diagLastConnected != connected;
   if (!changed && nowMs - diagLastNetMs < 30000U) return;
   // Network status must be visible even if optical safe-window detection is stuck.
+  if (diagNetworkKnown && connected && !diagLastConnected) {
+    battery.requestImmediateReport();
+  }
   diagLastStarted = started;
   diagLastConnected = connected;
   diagNetworkKnown = true;
@@ -231,8 +243,13 @@ void updateNetworkDiagnostics(uint32_t nowMs) {
 void coordinatorProbeCallback(esp_zb_zdp_status_t zdoStatus,
                               uint16_t address, esp_zb_af_node_desc_t *desc,
                               void *) {
-  Serial.printf("[ZDO-PING] coordinator reply status=0x%02X address=0x%04X descriptor=%u\n",
-                static_cast<unsigned>(zdoStatus), address, desc != nullptr);
+  // Zigbee task callback: defer USB output to the main loop.
+  portENTER_CRITICAL(&zdoMux);
+  ++zdoReply.sequence;
+  zdoReply.address = address;
+  zdoReply.status = static_cast<uint8_t>(zdoStatus);
+  zdoReply.descriptorPresent = desc != nullptr;
+  portEXIT_CRITICAL(&zdoMux);
 }
 
 void requestCoordinatorProbe() {
@@ -516,18 +533,29 @@ void loop() {
   const uint32_t nowMs = millis();
   processDiagnosticSerial();  // non-blocking; must work even if optical task is not reaching dark windows
   updateNetworkDiagnostics(nowMs);
+  ZdoResult newZdo;
+  portENTER_CRITICAL(&zdoMux);
+  newZdo = zdoReply;
+  portEXIT_CRITICAL(&zdoMux);
+  if (newZdo.sequence != zdoSeenSequence) {
+    zdoSeenSequence = newZdo.sequence;
+    Serial.printf("[ZDO-PING] reply status=0x%02X address=0x%04X descriptor=%u\n",
+                  newZdo.status, newZdo.address, newZdo.descriptorPresent);
+  }
   static uint32_t seenLightTrace = 0;
   Doobsky::ZigbeeLight::LightTrace lightTrace{};
-  if (zigbeeLight.readTrace(lightTrace, seenLightTrace)) {
-    // The stock Arduino callback does not expose source cluster or TSN.
-    // Changes are observations, not falsely attributed to a remote command.
-    Serial.printf("[ZCL-OBS] EP2 seq=%lu on=%u rawLevel=%u logicalLevel=%u changedOn=%u changedLevel=%u tsn=unavailable\n",
+  uint8_t drained = 0;
+  while (drained++ < 4 && zigbeeLight.readTrace(lightTrace, seenLightTrace)) {
+    // The SDK callback does not expose TSN; do not invent command metadata.
+    Serial.printf("[ZCL-OBS] EP2 seq=%lu on=%u rawLevel=%u logicalLevel=%u changedOn=%u changedLevel=%u dropped=%lu tsn=unavailable\n",
                   static_cast<unsigned long>(lightTrace.sequence), lightTrace.on,
                   lightTrace.rawLevel, lightTrace.effectiveLevel,
-                  lightTrace.onChanged, lightTrace.levelChanged);
+                  lightTrace.onChanged, lightTrace.levelChanged,
+                  static_cast<unsigned long>(zigbeeLight.droppedTraceCount()));
   }
   applyRequestedState(nowMs);
   updateButton(nowMs);
+  zigbeeLight.service(nowMs);  // bounded, retry only unsent local ZCL reports
   updateIndicators(nowMs);
 
   if (battery.needsService(nowMs)) {

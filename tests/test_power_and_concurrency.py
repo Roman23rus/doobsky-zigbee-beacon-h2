@@ -102,9 +102,9 @@ class PowerAndConcurrencyTests(unittest.TestCase):
 
         self.assertIn("batteryAttributeSyncPending_", battery_h)
         self.assertIn("lastBatteryAttributeAttemptMs_", battery_h)
-        self.assertIn("batteryAttrsOk", sync)
-        self.assertIn("dcAttrOk", sync)
-        self.assertIn("batteryAttributeSyncPending_ = !(batteryAttrsOk && dcAttrOk && presenceOk)", sync)
+        self.assertIn("snapshotOk", sync)
+        self.assertIn("syncBatterySnapshot", sync)
+        self.assertIn("batteryAttributeSyncPending_ = !snapshotOk", sync)
         self.assertIn("if (!syncAttributes(nowMs, true)) return", service)
         self.assertIn("if (!syncAttributes(nowMs, false)) return", service)
 

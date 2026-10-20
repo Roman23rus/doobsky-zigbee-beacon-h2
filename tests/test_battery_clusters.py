@@ -24,8 +24,8 @@ class BatteryClusterTests(unittest.TestCase):
         self.assertIn('addDCMeasurement(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE)', source)
         compact = ''.join(source.split())
         self.assertIn('setDCMultiplierDivisor(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE,1,1000)', compact)
-        self.assertIn('setDCMeasurement(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE', compact)
-        self.assertIn('reportDC(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE)', compact)
+        self.assertIn('ESP_ZB_ZCL_ATTR_ELECTRICAL_MEASUREMENT_DC_VOLTAGE_ID', source)
+        self.assertIn('reportDCVoltageQueued()',compact)
         self.assertNotIn('RMSVOLTAGE', source)
         self.assertNotIn('ZigbeeAnalog', source)
 
@@ -33,22 +33,22 @@ class BatteryClusterTests(unittest.TestCase):
         source = battery_source()
         self.assertIn('BATTERY_ZCL_UNKNOWN = 0xFF', source)
         self.assertIn('addBatteryPowerConfiguration', source)
-        self.assertIn('setBatteryTelemetryRaw', source)
+        self.assertIn('syncBatterySnapshot',source)
         self.assertIn('ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID', source)
         self.assertIn('ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID', source)
 
     def test_report_cycle_requires_standard_reportable_values_to_succeed(self):
         source = battery_source()
-        self.assertIn('reportBatteryPercentage()', source)
-        self.assertIn('reportDC(ZIGBEE_DC_MEASUREMENT_TYPE_VOLTAGE)', source)
-        self.assertIn('if (!(pctOk && dcVoltOk)) return;', source)
+        self.assertIn('reportBatteryPercentQueued()',source)
+        self.assertIn('reportDCVoltageQueued()',source)
+        self.assertIn('reportQueue_.finishAttempt(pctQueued, dcQueued)',source)
         self.assertNotIn('setDCReporting(', source)
 
     def test_power_config_battery_voltage_is_readable_not_manually_reported(self):
         source = battery_source()
         self.assertIn('ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID', source)
         self.assertNotIn('reportBatteryVoltage', source)
-        self.assertIn('BatteryVoltage is readable but is not a reportable', source)
+        self.assertIn('ESP_ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID',source)
 
 
 if __name__ == "__main__":

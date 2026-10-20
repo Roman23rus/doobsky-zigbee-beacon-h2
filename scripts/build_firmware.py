@@ -128,7 +128,14 @@ def main() -> int:
         git_sha = subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
     except Exception:
         git_sha = "unknown"
+    try:
+        source_dirty = bool(subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=ROOT, text=True).strip())
+    except Exception:
+        source_dirty = None
     result = {
+        "tracked_source_dirty": source_dirty,
         "profile": args.profile,
         "tclk_exchange_required": args.profile == "strict",
         "firmware_version": m.group(1) if m else "unknown",

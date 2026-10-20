@@ -78,19 +78,19 @@ class StatusAndControlTests(unittest.TestCase):
         self.assertIn("applyLightAttribute", handler)
         self.assertNotIn("setLightLevel(", ZIGBEE)
         self.assertNotIn("levelCorrection", ZIGBEE_H + ZIGBEE)
-        self.assertNotIn("zigbeeLight.service()", MAIN)
+        self.assertIn("zigbeeLight.service(nowMs)", MAIN)
 
     def test_callback_does_not_block_or_log(self):
         handler = function_text(ZIGBEE, "ZigbeeLight::handleLightChange")
         self.assertNotIn("Serial.", handler)
         self.assertNotIn("delay(", handler)
         self.assertIn("++traceSequence_", handler)
-        self.assertIn("lastTrace_", handler)
-        self.assertIn("callback(state, effectiveLevel)", handler)
+        self.assertIn("traces_[traceHead_]", handler)
+        self.assertIn("callback(state, next.level)", handler)
         self.assertIn("readTrace(lightTrace, seenLightTrace)", MAIN)
 
     def test_local_setter_is_only_writable_path_in_project(self):
-        self.assertEqual(ZIGBEE.count("endpoint_.setLight("), 2) # begin and local
+        self.assertEqual(ZIGBEE.count("endpoint_.setLocalChecked("), 2) # begin and local
         self.assertNotIn("endpoint_.setLightLevel(", ZIGBEE)
 
     def test_latest_beacon_request_is_authoritative(self):

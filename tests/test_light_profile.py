@@ -30,7 +30,7 @@ def function_text(source: str, name: str) -> str:
 class LightProfileTests(unittest.TestCase):
     def test_light_is_separate_dimmable_endpoint(self):
         source = MAIN + read(ZIGBEE_H_PATH) + read(ZIGBEE_PATH)
-        self.assertIn('ZigbeeDimmableLight', source)
+        self.assertIn('ESP_ZB_HA_DIMMABLE_LIGHT_DEVICE_ID', source)
         self.assertIn('LIGHT_ENDPOINT', source)
         self.assertIn('setManufacturerAndModel(MANUFACTURER, MODEL)', source)
         self.assertIn('Zigbee.addEndpoint', source)
@@ -39,20 +39,20 @@ class LightProfileTests(unittest.TestCase):
         source = read(ZIGBEE_H_PATH) + read(ZIGBEE_PATH)
         self.assertTrue(ZIGBEE_PATH.exists())
         self.assertTrue(ZIGBEE_H_PATH.exists())
-        self.assertIn('ZigbeeDimmableLight', source)
-        self.assertIn('setLight(', source)
+        self.assertIn('ESP_ZB_HA_DIMMABLE_LIGHT_DEVICE_ID', source)
+        self.assertIn('setLocalChecked(', source)
 
     def test_setlight_is_confined_to_logical_light_module(self):
         zigbee = read(ZIGBEE_PATH)
         beacon = read(BEACON_PATH)
         self.assertNotIn('setLight(', MAIN)
         self.assertNotIn('setLight(', beacon)
-        self.assertIn('setLight(', zigbee)
+        self.assertIn('commitLocalLight(', zigbee)
 
     def test_local_toggle_updates_shadow_once(self):
         source = read(ZIGBEE_PATH)
         body = function_text(source, 'ZigbeeLight::setLocalState')
-        self.assertEqual(body.count('.setLight('), 1)
+        self.assertEqual(body.count('.setLocalChecked('), 1)
 
     def test_logical_level_never_depends_on_instantaneous_pwm(self):
         source = read(ZIGBEE_H_PATH) + read(ZIGBEE_PATH)
