@@ -37,6 +37,6 @@ class LegacyCleanupTests(unittest.TestCase):
         self.assertNotIn("require_sprut_build.py",INI)
         self.assertIn("default_envs = esp32-h2-zigbee3-strict",INI)
         self.assertIn("esp32-h2-sprut-compat",INI)
-        self.assertIn('FW_VERSION[] = "0.9.0-alpha.2"',CONFIG)
+        self.assertIn('FW_VERSION[] = "0.9.0-alpha.3"',CONFIG)
 
 if __name__=="__main__": unittest.main()

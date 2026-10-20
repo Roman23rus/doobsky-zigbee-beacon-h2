@@ -6,6 +6,22 @@
 
 ## [Unreleased]
 
+### 0.9.0-alpha.3 — Zigbee transaction and report reliability (unflashed)
+
+- Replaced Arduino ZigbeeDimmableLight setter with a locally transactional
+  HA Dimmable Light endpoint: bounded Zigbee locks, ZCL read-back,
+  partial-write rollback and no physical callback before result.
+- Added separate bounded OnOff/Level reporting after local button actions.
+- Added bounded light observation ring and deferred ZDO logging.
+- Updated battery ZCL snapshot atomically under a bounded lock and split
+  percentage/DC report retries using backoff, with zero-init ZCL requests.
+- Marked tracked-source dirty state in firmware provenance manifest.
+- Added C++ host behavioral tests (including partial failures and rollbacks).
+- No change to app endpoint IDs, physical pins, Zigbee storage or TCLK profile.
+- Candidate requires fresh Sprut.Hub RF tests; not flashed to paired COM3.
+
+
+
 ### 0.9.0-alpha.2 — post-line-by-line firmware cleanup (unflashed)
 
 - Removed redundant OFF+CurrentLevel=0 handling in main; state handling is

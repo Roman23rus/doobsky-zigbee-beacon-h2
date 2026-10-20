@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <Zigbee.h>
 #include "zcl/esp_zigbee_zcl_power_config.h"
+#include "zcl_report_queue.h"
 
 namespace Doobsky {
 
@@ -10,8 +11,12 @@ class BatteryTelemetryEndpoint : public ZigbeeElectricalMeasurement {
 public:
   explicit BatteryTelemetryEndpoint(uint8_t endpoint);
   bool addBatteryPowerConfiguration(uint8_t percentageRaw, uint8_t voltageRaw);
-  bool setBatteryTelemetryRaw(uint8_t percentageRaw, uint8_t voltageRaw);
-  bool setBatteryPresent(bool valid);
+  bool syncBatterySnapshot(uint8_t percentageRaw, uint8_t voltageRaw,
+                           int16_t dcMillivolts, bool valid);
+  bool reportBatteryPercentQueued();
+  bool reportDCVoltageQueued();
+private:
+  bool reportAttributeQueued(uint16_t cluster, uint16_t attribute);
 };
 
 class BatteryTelemetry {
@@ -64,6 +69,8 @@ private:
   uint32_t lastBatteryReportAttemptMs_ = 0;
   uint32_t lastBatteryAttributeAttemptMs_ = 0;
   bool batteryReportInitialized_ = false;
+  bool reportCycleActive_ = false;
+  ReportQueue reportQueue_{};
   bool lastReportedBatteryValid_ = false;
   bool batteryTelemetryDirty_ = true;
   bool batteryAttributeSyncPending_ = true;
