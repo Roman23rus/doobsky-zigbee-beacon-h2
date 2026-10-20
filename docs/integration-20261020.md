@@ -36,4 +36,19 @@ USB-only readings of BatteryPercentageRemaining=255 and DCVoltage=-32768 are Zig
 5. Verify battery vs USB-only readings, power rails under flash load and brownout behavior.
 6. Stress repeated interleaved local/remote commands, network rejoin, restart and long-term radio availability.
 
-A successful build does not prove runtime compatibility; no target hardware execution was performed for this new integration.
+A successful build alone is not proof of runtime compatibility. Subsequent beta.1 hardware testing confirmed PAN retention and local toggling, but Sprut.Hub remote OnOff control and long-term operation remain unverified.
+
+## 20 October 2026 — ZDO ping burst regression guard
+
+During live serial testing a faulty host capture script emitted 34
+NodeDescriptorRequests in under one second. The ESP Zigbee 1.6.8/ZBOSS APS
+queue asserted at aps/aps_main.c:927 and the MCU rebooted. The firmware
+then restored the same PAN 0x6D38, short 0x8717 and factoryNew=0.
+A corrected single-ping test received status 0x00 from the coordinator,
+and a 60-second local toggle OFF -> ON -> OFF test had no new resets.
+
+Version 0.8.3-beta.2-sprut rate-limits the manual serial ZDO-PING command
+to at most one enqueue per 15 seconds and throttles log warnings. The
+limitation applies only to diagnostics: regular Zigbee device operation,
+network security and commissioning are unchanged. A hardware stress
+test of this guard is required before considering it production-stable.

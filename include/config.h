@@ -7,7 +7,7 @@ namespace BeaconConfig {
 // -----------------------------------------------------------------------------
 // Firmware identity
 // -----------------------------------------------------------------------------
-inline constexpr char FW_VERSION[] = "0.8.3-beta.1-sprut";
+inline constexpr char FW_VERSION[] = "0.8.3-beta.2-sprut";
 inline constexpr char MANUFACTURER[] = "Doobsky";
 inline constexpr char MODEL[] = "DBL-01";
 inline constexpr uint8_t BATTERY_SENSOR_ENDPOINT = 1;

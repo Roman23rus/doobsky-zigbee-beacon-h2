@@ -56,6 +56,13 @@ class StatusAndControlTests(unittest.TestCase):
         body = function_text(MAIN, "localToggle")
         self.assertEqual(body.count("zigbeeLight.setLocalState"), 1)
 
+    def test_zdo_ping_is_rate_limited_before_stack_enqueue(self):
+        body = function_text(MAIN, "requestCoordinatorProbe")
+        self.assertIn("nowMs - lastRequestMs < 15000U", body)
+        self.assertIn("lastRequestMs = nowMs", body)
+        self.assertIn("[ZDO-PING] ignored: rate limit 15s", body)
+        self.assertLess(body.index("lastRequestMs != 0"), body.index("esp_zb_zdo_node_desc_req("))
+
     def test_persistence_is_delayed_and_outside_flash_window(self):
         body = function_text(MAIN, "savePersistentStateIfNeeded")
         self.assertIn("PREFS_WRITE_DELAY_MS", body)

@@ -247,6 +247,18 @@ void coordinatorProbeCallback(esp_zb_zdp_status_t zdoStatus,
 }
 
 void requestCoordinatorProbe() {
+  // ZBOSS may assert if the APS queue is flooded with ZDO requests.
+  // Keep diagnostics strictly slower than the network's normal retry window.
+  static uint32_t lastRequestMs = 0;
+  static uint32_t lastThrottleMessageMs = 0;
+  const uint32_t nowMs = millis();
+  if (lastRequestMs != 0 && nowMs - lastRequestMs < 15000U) {
+    if (lastThrottleMessageMs == 0 || nowMs - lastThrottleMessageMs >= 15000U) {
+      Serial.println("[ZDO-PING] ignored: rate limit 15s");
+      lastThrottleMessageMs = nowMs;
+    }
+    return;
+  }
   if (!Zigbee.connected()) {
     Serial.println("[ZDO-PING] rejected: not connected");
     return;
@@ -258,6 +270,7 @@ void requestCoordinatorProbe() {
   esp_zb_zdo_node_desc_req_param_t request{};
   request.dst_nwk_addr = 0x0000; // Zigbee Trust Center / coordinator
   esp_zb_zdo_node_desc_req(&request, &coordinatorProbeCallback, nullptr);
+  lastRequestMs = nowMs;
   esp_zb_lock_release();
   Serial.println("[ZDO-PING] sent NodeDescriptorRequest to coordinator 0x0000");
 }
