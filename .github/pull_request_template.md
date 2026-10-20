@@ -9,7 +9,7 @@
 ## Проверка
 
 - [ ] `python -m unittest discover -s tests -p "test_*.py" -v`
-- [ ] `pio run -e esp32-h2-supermini-end-device`
+- [ ] `python scripts/build_firmware.py --profile sprut`
 - [ ] Аппаратная проверка выполнена, если изменение влияет на GPIO/PWM/питание/Zigbee
 
 ## Влияние

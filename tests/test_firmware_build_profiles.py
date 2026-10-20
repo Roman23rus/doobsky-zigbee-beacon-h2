@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD_SCRIPT = ROOT / "scripts/build_spruthub.py"
+BUILD_SCRIPT = ROOT / "scripts/build_firmware.py"
 
 
 class SprutBuildScriptTests(unittest.TestCase):

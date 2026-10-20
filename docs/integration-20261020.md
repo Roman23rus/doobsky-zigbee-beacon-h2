@@ -1,3 +1,5 @@
+> **Historical reference — not current build instructions.** For active firmware see README.md and docs/zigbee3-conformance-20261020.md. Obsolete TEST and POWER-EXPERIMENT templates were removed from the active tree.
+
 # Doobsky ESP32-H2 / Sprut.Hub integration (2026-10-20)
 
 This integration branch combines diagnostics/beacon-output-20261020 with the Sprut CONTROL-v3 template and fixes the dangerous OnOff/LevelControl correction race. No flashing, factory reset, Zigbee NVS erase or hub configuration change was performed.

@@ -98,14 +98,6 @@ void applyRequestedState(uint32_t nowMs) {
 
   if (!hasRequest) return;
 
-  // Some coordinators carry CurrentLevel=0 with OFF. OFF is represented by
-  // activeOn; it must not erase the user's remembered non-zero brightness.
-  if (!newOn && newLevel == 0) {
-    newLevel = (activeLevel == 0 || activeLevel > ZIGBEE_MAX_LEVEL)
-        ? DEFAULT_LEVEL
-        : activeLevel;
-  }
-
   const bool onChanged = newOn != activeOn;
   const bool levelChanged = newLevel != activeLevel;
   if (!onChanged && !levelChanged) return;
@@ -133,15 +125,12 @@ void loadPersistentState() {
   activeLevel = prefs.getUChar("level", DEFAULT_LEVEL);
   activeOn = RESTORE_OUTPUT_AFTER_REBOOT ? prefs.getBool("on", false) : false;
 
-  // Firmware before 0.8 could persist level 0 when a coordinator turned the
-  // light off. Repair that state once; if the write fails, normal deferred
-  // persistence will retry later.
+  // Reject invalid persisted ZCL levels and repair them only through the
+  // regular deferred NVS path. Never write preferences during startup.
   if (activeLevel == 0 || activeLevel > ZIGBEE_MAX_LEVEL) {
     activeLevel = DEFAULT_LEVEL;
-    if (prefs.putUChar("level", activeLevel) == 0) {
-      prefsLevelDirty = true;
-      prefsDirtySinceMs = millis();
-    }
+    prefsLevelDirty = true;
+    prefsDirtySinceMs = millis();
   }
 
   enqueueRequestedState(activeOn, activeLevel);
@@ -419,14 +408,13 @@ void syncZigbeePowerDescriptors() {
   static uint8_t lastNodePowerLevel = 0xFF;
 
   if (!basicPowerSourceSynced) {
-    if (!zigbeeLight.setBasicPowerSourceBattery()) return;
-
-    // The node descriptor and the Basic clusters agree on battery power.
+    // Both Basic clusters are already set to Battery before endpoint registration.
+    // Keep the ZDO node descriptor aligned once Zigbee has started.
     if (!esp_zb_lock_acquire(pdMS_TO_TICKS(10))) return;
     esp_zb_set_node_descriptor_power_source(false);
     esp_zb_lock_release();
     basicPowerSourceSynced = true;
-    Serial.println("[ZB] Battery power source synchronized");
+    Serial.println("[ZB] Battery ZDO source synchronized");
   }
 
   const uint8_t level = currentNodePowerLevel();

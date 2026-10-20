@@ -6,44 +6,39 @@
 
 ## [Unreleased]
 
-### Добавлено
+### 0.9.0-alpha.2 — post-line-by-line firmware cleanup (unflashed)
 
-- Регрессионные проверки конкурентного доступа, power policy и воспроизводимости сборки.
-- Итоговый журнал и отчёт полного аудита в `docs/audit/`.
+- Removed redundant OFF+CurrentLevel=0 handling in main; state handling is
+  centralized in the ZigbeeLight state transition helper.
+- Removed the duplicate Basic PowerSource attribute write after Zigbee start.
+  Both Basic endpoints are initialized before registration; the ZDO Node
+  Descriptor synchronization is preserved.
+- Removed legacy startup NVS migration write. Invalid brightness in saved
+  preferences is now repaired via normal deferred NVS persistence.
+- Removed unused ESP Zigbee security include and two outdated Sprut templates.
+- Removed unused manufacturing install-code generator for this home DIY product.
+- Renamed build script, profile guard and Sprut build environment to reflect
+  strict and compatibility builds; updated CI and contributor instructions.
+- Added regression checks guarding against the old code's return.
+- Both strict and Sprut-compatible ESP32-H2 images compile on pinned Arduino
+  3.3.12/pioarduino 55.03.312-1. No device flash or Zigbee NVS change.
+- Retained the operational PWM beacon generator, RGB/blue indicators,
+  ZCL battery telemetry, factory reset, NVS, and serial diagnostics.
 
-### Изменено
+### 0.9.0-alpha.1 — Zigbee 3.0 profile work (unflashed)
 
-- Целевая частота CPU ESP32-H2 снижена с 96 до **64 МГц** без перехода Zigbee в sleepy mode.
-- Housekeeping/status/button polling снижены со 100 до **50 Гц**.
-- Максимальная частота обновления RGB снижена с 200 до **100 Гц**.
-- Батарейное масштабирование переведено с float на fixed-point.
-- Батарейный сервис запускается только когда действительно требуется sample/report.
-- NVS хранит On/Off и brightness с раздельными dirty-флагами; задержка coalescing снижена с 1500 до 750 мс.
-- pioarduino зафиксирован на **55.03.312**, CI PlatformIO — на **6.2.0** для воспроизводимых сборок.
+- Added Simple Sensor Binary Input and Identify client; kept EP1/EP2 IDs.
+- Added strict TCLK-exchange-required security profile alongside Sprut
+  compatibility and profile-specific SWBuildID.
+- Explicitly initialized EP2 battery PowerSource before endpoint registration.
+- Not CSA certified; install-code provisioning not implemented.
 
-### Исправлено
+### 0.8.3-beta.2-sprut — installed and tested on ESP32-H2
 
-- Deferred correction `CurrentLevel=0` теперь использует generation/in-flight tracking: при burst-командах действует принцип latest-command-wins.
-- Battery/DC attributes проверяются после обновления; при transient failure синхронизация повторяется до report.
-- Добавлен явный стандартный report Power Configuration / `BatteryVoltage`.
-- Удалён дублирующий automatic DCVoltage reporting; battery telemetry использует единую manual change/periodic policy.
-- Устранены data race в pending state и Identify между Zigbee callback и main loop.
-- Deferred Zigbee CurrentLevel correction защищена generation/in-flight tracking: старая коррекция не может остаться авторитетной после более новой команды.
-- Ошибки обновления локальных battery/DC Zigbee-атрибутов больше не приводят к report устаревшего значения; добавлен retry до успешной синхронизации.
-- Убран дублирующий automatic DCVoltage reporting — используется одна управляемая manual reporting-политика.
-- Power Configuration `BatteryVoltage` оставлен стандартным читаемым, но нерепортируемым атрибутом; точное напряжение репортится как Electrical Measurement `DCVoltage`.
-- Factory reset проверяет результат очистки app-NVS и повторяет неудачную очистку один раз.
-- Ошибки записи NVS больше не вызывают частый retry loop.
-- Battery runtime продолжает работать после transient failure начальной настройки Zigbee-атрибутов.
-- Убраны лишние пробуждения, блокировки и повторные операции one-shot timer в BeaconEngine.
-
-### Планируется
-
-- Аппаратная проверка audit-прошивки на 64 МГц.
-- Финальная проверка TPS61088 в автономной схеме.
-- Проверка полной работы от аккумулятора 21700.
-- Подтверждение точных длительностей элементов характеристики Doobsky по первичному источнику.
-- Финальная оптическая калибровка готовой модели.
+- Fixed deferred CurrentLevel writes overwriting newer OnOff commands.
+- Added a 15-second throttle for manual ZDO diagnostic ping after a
+  host-side ping burst caused a ZBOSS APS assertion.
+- Preserved Zigbee NVS and backed up the entire 4MB flash before changes.
 
 ## [0.8.0-alpha.1] — 2026-10-04
 

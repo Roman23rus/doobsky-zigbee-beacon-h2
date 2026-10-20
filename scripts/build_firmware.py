@@ -23,7 +23,7 @@ PIO_HOME = Path(os.environ.get("PLATFORMIO_CORE_DIR")
                 or Path.home() / ".platformio")
 CORE = (PIO_HOME / "packages/framework-arduinoespressif32/libraries/"
         "Zigbee/src/ZigbeeCore.cpp")
-ENV_COMPAT = "esp32-h2-supermini-end-device"
+ENV_COMPAT = "esp32-h2-sprut-compat"
 ENV_STRICT = "esp32-h2-zigbee3-strict"
 INCLUDE = '#include "ZigbeeCore.h"'
 INIT = "  esp_zb_init(zb_cfg);"
@@ -97,7 +97,7 @@ def main() -> int:
         try:
             CORE.write_bytes(patch_bytes)
             build_env = dict(os.environ)
-            build_env["DOOBSKY_SPRUT_PATCH_APPLIED"] = "1"
+            build_env["DOOBSKY_PROFILE_PATCH_APPLIED"] = "1"
             build_env["DOOBSKY_ZIGBEE_PROFILE"] = args.profile
             code = run([exe, "run", "-e", env_name], env=build_env)
         finally:

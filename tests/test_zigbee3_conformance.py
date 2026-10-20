@@ -5,7 +5,7 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 BAT=(ROOT/'src/battery_telemetry.cpp').read_text(encoding='utf-8-sig')
 LIGHT=(ROOT/'src/zigbee_light.cpp').read_text(encoding='utf-8-sig')
 CONFIG=(ROOT/'include/config.h').read_text(encoding='utf-8-sig')
-BUILDER=(ROOT/'scripts/build_spruthub.py').read_text(encoding='utf-8-sig')
+BUILDER=(ROOT/'scripts/build_firmware.py').read_text(encoding='utf-8-sig')
 INI=(ROOT/'platformio.ini').read_text(encoding='utf-8-sig')
 
 class Zigbee3ConformanceTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class Zigbee3ConformanceTests(unittest.TestCase):
     def test_device_versions_and_mandatory_dimmable_clusters(self):
         self.assertIn('endpoint_.setVersion(ZIGBEE_APP_VERSION)', BAT)
         self.assertIn('endpoint_.setVersion(ZIGBEE_APP_VERSION)', LIGHT)
-        self.assertIn('ZIGBEE_APP_VERSION = 1',CONFIG)
+        self.assertIn('ZIGBEE_APP_VERSION = 2',CONFIG)
         self.assertIn('ZigbeeDimmableLight', (ROOT/'include/zigbee_light.h').read_text(encoding='utf-8-sig'))
 
     def test_strict_default_and_no_cross_profile_security(self):
@@ -47,8 +47,8 @@ class Zigbee3ConformanceTests(unittest.TestCase):
         self.assertIn('setInitialBatteryPowerSource()', LIGHT)
 
     def test_basic_swbuildid_distinguishes_profiles(self):
-        self.assertIn('ZCL_SW_BUILD_ID[] = "0.9.0-z3-strict"',CONFIG)
-        self.assertIn('ZCL_SW_BUILD_ID[] = "0.9.0-z3-sprut"',CONFIG)
+        self.assertIn('ZCL_SW_BUILD_ID[] = "0.9.0-a2-strict"',CONFIG)
+        self.assertIn('ZCL_SW_BUILD_ID[] = "0.9.0-a2-sprut"',CONFIG)
         bid=(ROOT/'include/zigbee_build_id.h').read_text(encoding='utf-8-sig')
         self.assertIn('BeaconConfig::ZCL_SW_BUILD_ID',bid)
 
